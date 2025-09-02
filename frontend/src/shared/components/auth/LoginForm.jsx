@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import Button from "../ui/Button";
@@ -9,8 +9,15 @@ const LoginForm = () => {
     password: "",
   });
   const [errors, setErrors] = useState({});
-  const { login, loading, error } = useAuth();
+  const { login, loading, error, user } = useAuth();
   const navigate = useNavigate();
+
+  // Add this useEffect to handle redirect after login
+  useEffect(() => {
+    if (user) {
+      navigate(`/${user.role}/dashboard`);
+    }
+  }, [user, navigate]);
 
   const handleChange = (e) => {
     setFormData({
@@ -52,7 +59,7 @@ const LoginForm = () => {
 
     try {
       await login(formData.email, formData.password);
-      navigate(`/${user.role}/dashboard`);
+      // Navigation is now handled by useEffect above
     } catch (error) {
       // Error is handled by auth context
     }

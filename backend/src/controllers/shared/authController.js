@@ -33,7 +33,7 @@ const register = async (req, res) => {
           email,
           password,
           role,
-           profileCompletion: 20,
+          profileCompletion: 20,
           ...roleData,
         });
         break;
@@ -44,7 +44,7 @@ const register = async (req, res) => {
           email,
           password,
           role,
-           profileCompletion: 20,
+          profileCompletion: 20,
           ...roleData,
         });
         break;
@@ -55,7 +55,7 @@ const register = async (req, res) => {
           email,
           password,
           role,
-           profileCompletion: 20,
+          profileCompletion: 20,
           ...roleData,
         });
         break;
@@ -63,8 +63,7 @@ const register = async (req, res) => {
         return res.status(400).json({ message: "Invalid role" });
     }
 
-
-
+    // In your register controller
     if (user) {
       res.status(201).json({
         _id: user._id,
@@ -72,6 +71,7 @@ const register = async (req, res) => {
         lastName: user.lastName,
         email: user.email,
         role: user.role,
+        profileCompletion: user.profileCompletion || 0, // Add this
         token: generateToken(user._id),
       });
     }

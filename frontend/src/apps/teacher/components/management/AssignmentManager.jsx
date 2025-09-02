@@ -2,7 +2,6 @@ import React, { useState, useEffect } from "react";
 import Button from "../../../../shared/components/ui/Button";
 import { assignmentService } from "../../../../shared/services/assignmentService";
 import { useNotification } from "../../../../shared/hooks/useNotification";
-import { notificationMessages } from "../../../../shared/services/notificationService";
 
 const AssignmentManager = () => {
   const [activeTab, setActiveTab] = useState("active");
@@ -83,12 +82,21 @@ const AssignmentManager = () => {
     }
   };
 
+  // FIXED: Proper input change handler
   const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({
-      ...prev,
-      [name]: value,
-    }));
+    const { name, value, type, checked } = e.target;
+
+    if (type === "checkbox") {
+      setFormData((prev) => ({
+        ...prev,
+        [name]: checked ? "active" : "draft",
+      }));
+    } else {
+      setFormData((prev) => ({
+        ...prev,
+        [name]: value,
+      }));
+    }
   };
 
   const handleEdit = (assignment) => {
@@ -271,13 +279,9 @@ const AssignmentManager = () => {
             <label className="flex items-center">
               <input
                 type="checkbox"
+                name="status" // Added name attribute
                 checked={formData.status === "active"}
-                onChange={(e) =>
-                  setFormData((prev) => ({
-                    ...prev,
-                    status: e.target.checked ? "active" : "draft",
-                  }))
-                }
+                onChange={handleInputChange} // Use the same handler
                 className="rounded border-gray-300 text-blue-600 focus:ring-blue-600"
               />
               <span className="ml-2 text-sm text-gray-700">
@@ -311,6 +315,7 @@ const AssignmentManager = () => {
     </div>
   );
 
+  // ... rest of the component remains the same
   const renderAssignmentCard = (assignment) => (
     <div
       key={assignment._id}

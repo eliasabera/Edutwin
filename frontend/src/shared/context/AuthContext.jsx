@@ -17,22 +17,21 @@ export const AuthProvider = ({ children }) => {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    const token = localStorage.getItem("token");
-    if (token) {
-      authService
-        .verifyToken()
-        .then((userData) => {
+    const checkAuth = async () => {
+      try {
+        const userData = await authService.verifyToken();
+        if (userData) {
           setUser(userData);
-        })
-        .catch(() => {
-          localStorage.removeItem("token");
-        })
-        .finally(() => {
-          setLoading(false);
-        });
-    } else {
-      setLoading(false);
-    }
+        }
+      } catch (error) {
+        console.error("Auth check failed:", error);
+        setUser(null);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    checkAuth();
   }, []);
 
   const login = async (email, password) => {
@@ -40,8 +39,11 @@ export const AuthProvider = ({ children }) => {
       setLoading(true);
       setError("");
       const response = await authService.login(email, password);
-      setUser(response.user);
+
+      // FIXED: Response contains user data directly, not nested
+      setUser(response); // response = {_id, firstName, lastName, email, role, token, etc.}
       localStorage.setItem("token", response.token);
+
       return response;
     } catch (error) {
       setError(error.message);
@@ -56,7 +58,7 @@ export const AuthProvider = ({ children }) => {
       setLoading(true);
       setError("");
       const response = await authService.register(userData);
-      setUser(response.user);
+      setUser(response); // Same fix here
       localStorage.setItem("token", response.token);
       return response;
     } catch (error) {
@@ -69,8 +71,12 @@ export const AuthProvider = ({ children }) => {
 
   const logout = () => {
     setUser(null);
-    localStorage.removeItem("token");
+    setError("");
     authService.logout();
+  };
+
+  const clearError = () => {
+    setError("");
   };
 
   const value = {
@@ -80,7 +86,7 @@ export const AuthProvider = ({ children }) => {
     login,
     register,
     logout,
-    setError,
+    clearError,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

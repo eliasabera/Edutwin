@@ -2,7 +2,6 @@ import axios from "axios";
 
 const API_BASE_URL = "https://edutwin-backend.onrender.com/api";
 
-
 export const api = axios.create({
   baseURL: API_BASE_URL,
   timeout: 10000,

@@ -23,7 +23,7 @@ export const authService = {
     try {
       const token = localStorage.getItem("token");
       if (!token) {
-        throw new Error("No token found");
+        return null; // Return null instead of throwing error
       }
 
       const response = await api.get("/auth/me", {
@@ -34,7 +34,7 @@ export const authService = {
       return response.data;
     } catch (error) {
       localStorage.removeItem("token");
-      throw new Error("Token verification failed");
+      return null; // Return null instead of throwing error
     }
   },
 
@@ -61,6 +61,7 @@ export const authService = {
       );
     }
   },
+
   async getProfile() {
     try {
       const response = await api.get("/profile");
@@ -69,15 +70,6 @@ export const authService = {
       throw new Error(
         error.response?.data?.message || "Failed to fetch profile"
       );
-    }
-  },
-
-  async updateProfile(profileData) {
-    try {
-      const response = await api.put("/profile", profileData);
-      return response.data;
-    } catch (error) {
-      throw new Error(error.response?.data?.message || "Profile update failed");
     }
   },
 
