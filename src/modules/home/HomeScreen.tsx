@@ -9,7 +9,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  View
+  View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -40,7 +40,6 @@ export default function HomeScreen() {
     return () => loop.stop();
   }, [thunderPulse]);
 
-  const focusSubject = studentProfile.supportSubjects[0] || "biology";
   const unlockedAchievements = gamification.achievements.filter(
     (achievement) => achievement.unlocked,
   );
@@ -52,6 +51,7 @@ export default function HomeScreen() {
     gamification.totalPracticeCompleted * 25 +
     gamification.teacherAssessmentsCompleted * 50 +
     unlockedAchievements.length * 10;
+  const studentRank = Math.max(1, Math.floor(totalXp / 120) + 1);
 
   const drawerTiles = [
     {
@@ -103,21 +103,18 @@ export default function HomeScreen() {
       <View style={styles.bgGlowSky} />
 
       <View style={[styles.headerArea, { paddingTop: insets.top + 10 }]}>
-        <View style={styles.energyWrap}>
-          <View style={styles.energyAura} />
+        <View style={styles.brandRow}>
+          <View style={styles.rankBadge}>
+            <Ionicons name="podium-outline" size={14} color="#0B5FFF" />
+            <Text style={styles.rankBadgeText}>Rank {studentRank}</Text>
+          </View>
+        </View>
 
+        <View style={styles.energyWrap}>
           <View style={styles.energyStatLeft}>
             <Ionicons name="flame" size={19} color="#FF9600" />
-            <Text style={styles.energyStatValue}>
-              {gamification.currentStreak}
-            </Text>
+            <Text style={styles.energyStatValue}>{gamification.currentStreak}</Text>
             <Text style={styles.energyStatLabel}>Streak</Text>
-          </View>
-
-          <View style={styles.energyStatRight}>
-            <Ionicons name="diamond" size={19} color="#0B5FFF" />
-            <Text style={styles.energyStatValue}>{totalXp}</Text>
-            <Text style={styles.energyStatLabel}>XP</Text>
           </View>
 
           <View style={styles.energyRingShell}>
@@ -128,7 +125,10 @@ export default function HomeScreen() {
                 {
                   transform: [
                     {
-                      rotate: `${Math.max(8, Math.round((readinessPercent / 100) * 360))}deg`,
+                      rotate: `${Math.max(
+                        8,
+                        Math.round((readinessPercent / 100) * 360),
+                      )}deg`,
                     },
                   ],
                 },
@@ -136,10 +136,18 @@ export default function HomeScreen() {
             />
 
             <View style={styles.energyCore}>
+              <Text style={styles.energyCoreLabel}>Twin</Text>
               <Text style={styles.energyName} numberOfLines={2}>
-                {studentProfile.fullName || "Student"}
+                {studentProfile.twinName || "EduTwin"}
               </Text>
+              <Text style={styles.energyRankText}>Rank {studentRank}</Text>
             </View>
+          </View>
+
+          <View style={styles.energyStatRight}>
+            <Ionicons name="diamond" size={19} color="#0B5FFF" />
+            <Text style={styles.energyStatValue}>{totalXp}</Text>
+            <Text style={styles.energyStatLabel}>XP</Text>
           </View>
         </View>
       </View>
@@ -273,75 +281,106 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 18,
   },
+  brandRow: {
+    width: "100%",
+    marginBottom: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    paddingHorizontal: 6,
+  },
+  rankBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: "rgba(255, 255, 255, 0.9)",
+    borderWidth: 1,
+    borderColor: "rgba(11, 95, 255, 0.18)",
+  },
+  rankBadgeText: {
+    color: "#0B5FFF",
+    fontWeight: "800",
+    fontSize: 12,
+  },
   energyWrap: {
     width: "100%",
     alignItems: "center",
     justifyContent: "center",
     paddingTop: 8,
     paddingBottom: 4,
-  },
-  energyAura: {
-    position: "absolute",
-    width: 260,
-    height: 260,
-    borderRadius: 999,
-    backgroundColor: "rgba(11, 95, 255, 0.05)",
+    flexDirection: "row",
+    gap: 8,
   },
   energyRingShell: {
-    width: 208,
-    height: 208,
+    width: 186,
+    height: 186,
     borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
   },
   energyRingTrack: {
     position: "absolute",
-    width: 208,
-    height: 208,
+    width: 186,
+    height: 186,
     borderRadius: 999,
-    borderWidth: 11,
+    borderWidth: 10,
     borderColor: "#D9E6FF",
   },
   energyRingProgress: {
     position: "absolute",
-    width: 208,
-    height: 208,
+    width: 186,
+    height: 186,
     borderRadius: 999,
-    borderWidth: 11,
+    borderWidth: 10,
     borderColor: "transparent",
     borderTopColor: "#0B5FFF",
     borderRightColor: "#FF9600",
-    shadowColor: "#0B5FFF",
-    shadowOpacity: 0.35,
-    shadowRadius: 12,
-    elevation: 7,
   },
   energyCore: {
-    width: 156,
-    height: 156,
+    width: 136,
+    height: 136,
     borderRadius: 999,
     backgroundColor: "rgba(255, 255, 255, 0.82)",
     borderWidth: 1,
     borderColor: "rgba(11, 95, 255, 0.12)",
     alignItems: "center",
     justifyContent: "center",
-    gap: 4,
+    gap: 2,
+    paddingHorizontal: 10,
+    shadowColor: "#0E234E",
+    shadowOpacity: 0.18,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 6,
+  },
+  energyCoreLabel: {
+    color: "#6B7A99",
+    fontWeight: "700",
+    fontSize: 11,
+    letterSpacing: 1.2,
+    textTransform: "uppercase",
   },
   energyName: {
     color: "#1A202C",
     fontWeight: "800",
-    fontSize: 18,
+    fontSize: 16,
     textAlign: "center",
-    paddingHorizontal: 12,
+    paddingHorizontal: 8,
+  },
+  energyRankText: {
+    color: "#0B5FFF",
+    fontWeight: "800",
+    fontSize: 11,
   },
   energyStatLeft: {
-    position: "absolute",
-    left: 34,
-    top: 70,
+    minWidth: 70,
     alignItems: "center",
     paddingVertical: 8,
-    paddingHorizontal: 10,
-    borderRadius: 999,
+    paddingHorizontal: 8,
+    borderRadius: 20,
     backgroundColor: "rgba(255, 255, 255, 0.9)",
     borderWidth: 1,
     borderColor: "rgba(255, 150, 0, 0.22)",
@@ -351,13 +390,11 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   energyStatRight: {
-    position: "absolute",
-    right: 34,
-    top: 70,
+    minWidth: 70,
     alignItems: "center",
     paddingVertical: 8,
-    paddingHorizontal: 10,
-    borderRadius: 999,
+    paddingHorizontal: 8,
+    borderRadius: 20,
     backgroundColor: "rgba(255, 255, 255, 0.9)",
     borderWidth: 1,
     borderColor: "rgba(11, 95, 255, 0.22)",
@@ -370,15 +407,15 @@ const styles = StyleSheet.create({
     marginTop: 2,
     color: "#1A202C",
     fontWeight: "800",
-    fontSize: 16,
+    fontSize: 14,
   },
   energyStatLabel: {
     color: "#718096",
     fontWeight: "600",
-    fontSize: 11,
+    fontSize: 10,
   },
   actionZone: {
-    marginTop: 18,
+    marginTop: 14,
     marginBottom: 8,
     alignItems: "center",
   },
