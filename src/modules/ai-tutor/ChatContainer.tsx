@@ -1,6 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useFocusEffect } from "@react-navigation/native";
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -32,7 +31,9 @@ type ChatMessage = {
   timestamp: string;
 };
 
-const subjectOptions: Array<{ label: string; value: SubjectName }> = [
+let cachedChatMessages: ChatMessage[] | null = null;
+
+const subjectOptions: { label: string; value: SubjectName }[] = [
   { label: "Biology", value: "biology" },
   { label: "Chemistry", value: "chemistry" },
   { label: "Physics", value: "physics" },
@@ -68,14 +69,17 @@ export default function ChatContainer() {
       studentProfile.strongSubjects[0] ||
       "biology",
   );
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: "welcome",
-      text: `Hi ${studentProfile.fullName}, I am ${studentProfile.twinName}.`,
-      isUser: false,
-      timestamp: getTimeLabel(),
-    },
-  ]);
+  const [messages, setMessages] = useState<ChatMessage[]>(
+    cachedChatMessages || [
+      {
+        id: "welcome",
+        text: `Hi ${studentProfile.fullName}, I am ${studentProfile.twinName}.`,
+        isUser: false,
+        timestamp: getTimeLabel(),
+      },
+    ],
+  );
+  const hasHydratedHistoryRef = useRef(false);
 
   const buildWelcomeMessage = useCallback(
     (): ChatMessage => ({
@@ -101,47 +105,45 @@ export default function ChatContainer() {
     };
   };
 
-  useFocusEffect(
-    useCallback(() => {
-      let isMounted = true;
+  useEffect(() => {
+    cachedChatMessages = messages;
+  }, [messages]);
 
-      const loadChatHistory = async () => {
-        const sessionId = getChatSessionId();
-        if (!sessionId) {
-          setMessages([buildWelcomeMessage()]);
-          return;
-        }
+  useEffect(() => {
+    if (hasHydratedHistoryRef.current) {
+      return;
+    }
 
-        try {
-          const history = await fetchChatHistory(sessionId);
-          if (!isMounted) return;
+    hasHydratedHistoryRef.current = true;
+    let isMounted = true;
 
-          if (!history.length) {
-            setMessages([buildWelcomeMessage()]);
-            return;
-          }
+    const loadChatHistory = async () => {
+      try {
+        const sessionId = getChatSessionId() || undefined;
+        const history = await fetchChatHistory(sessionId);
+        if (!isMounted || !history.length) return;
 
-          const mapped = history
-            .map(mapPersistedToChatMessage)
-            .filter((message) => message.text.trim().length > 0);
+        const mapped = history
+          .map(mapPersistedToChatMessage)
+          .filter((message) => message.text.trim().length > 0);
 
-          setMessages([buildWelcomeMessage(), ...mapped]);
-          setTimeout(scrollToEnd, 0);
-        } catch (error) {
-          console.warn("Failed to load chat history:", error);
-          if (isMounted) {
-            setMessages([buildWelcomeMessage()]);
-          }
-        }
-      };
+        if (!mapped.length) return;
 
-      loadChatHistory();
+        const hydrated = [buildWelcomeMessage(), ...mapped];
+        setMessages(hydrated);
+        cachedChatMessages = hydrated;
+        setTimeout(scrollToEnd, 0);
+      } catch (error) {
+        console.warn("Failed to load chat history:", error);
+      }
+    };
 
-      return () => {
-        isMounted = false;
-      };
-    }, [buildWelcomeMessage]),
-  );
+    loadChatHistory();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [buildWelcomeMessage]);
 
   const scrollToEnd = () => {
     flatListRef.current?.scrollToEnd({ animated: true });
