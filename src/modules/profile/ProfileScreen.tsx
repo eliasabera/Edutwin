@@ -1,4 +1,8 @@
-import { fetchStudentProfile } from "@/shared/services/auth-service";
+import {
+  fetchStudentProfile,
+  getCachedStudentProfile,
+  mapBackendProfileToStudentProfile,
+} from "@/shared/services/auth-service";
 import {
   getStudentProfile,
   updateStudentProfile,
@@ -16,74 +20,79 @@ export default function ProfileScreen() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncError, setSyncError] = useState("");
   const [activeCard, setActiveCard] = useState<"student" | "twin">("student");
+  const cachedBackendProfile = getCachedStudentProfile();
 
   useFocusEffect(
     useCallback(() => {
-    let isMounted = true;
+      let isMounted = true;
 
-    const syncProfile = async () => {
-      if (isMounted) {
-        setIsSyncing(true);
-        setSyncError("");
-      }
-
-      try {
-        console.log("Profile sync: fetching from backend...");
-        const profile = await fetchStudentProfile();
-        if (!isMounted) return;
-
-        const currentProfile = getStudentProfile();
-
-        const normalizedSupport = (profile.support_subjects || [])
-          .filter((item) => ["biology", "chemistry", "physics", "math"].includes(item))
-          .map((item) => item as "biology" | "chemistry" | "physics" | "math");
-
-        const normalizedStrong = (profile.strong_subjects || [])
-          .filter((item) => ["biology", "chemistry", "physics", "math"].includes(item))
-          .map((item) => item as "biology" | "chemistry" | "physics" | "math");
-
-        updateStudentProfile({
-          fullName: profile.full_name || currentProfile.fullName,
-          grade: String(profile.grade_level ?? profile.grade ?? currentProfile.grade),
-          preferredLanguage: profile.language === "om" ? "om" : "en",
-          masteryScore:
-            typeof profile.mastery_score === "number"
-              ? profile.mastery_score
-              : currentProfile.masteryScore,
-          performanceBand:
-            profile.performance_band === "top"
-              ? "top"
-              : profile.performance_band === "support" || profile.performance_band === "low"
-                ? "support"
-                : "medium",
-          twinName: profile.twin_name || currentProfile.twinName,
-          supportSubjects: normalizedSupport,
-          strongSubjects: normalizedStrong,
-          diagnosticCompleted:
-            typeof profile.diagnostic_completed === "boolean"
-              ? profile.diagnostic_completed
-              : currentProfile.diagnosticCompleted,
-        });
-      } catch (error) {
-        console.warn("Profile fetch failed:", error);
-        if (isMounted) {
-          const message =
-            error instanceof Error ? error.message : "Failed to fetch profile";
-          setSyncError(message);
+      const syncProfile = async () => {
+        if (cachedBackendProfile) {
+          updateStudentProfile(mapBackendProfileToStudentProfile(cachedBackendProfile));
+          return;
         }
-        // Keep rendering local store data if backend profile is unavailable.
-      } finally {
+
         if (isMounted) {
-          setIsSyncing(false);
+          setIsSyncing(true);
+          setSyncError("");
         }
-      }
-    };
 
-    syncProfile();
+        try {
+          console.log("Profile sync: fetching from backend...");
+          const profile = await fetchStudentProfile();
+          if (!isMounted) return;
 
-    return () => {
-      isMounted = false;
-    };
+          const currentProfile = getStudentProfile();
+
+          const normalizedSupport = (profile.support_subjects || [])
+            .filter((item) => ["biology", "chemistry", "physics", "math"].includes(item))
+            .map((item) => item as "biology" | "chemistry" | "physics" | "math");
+
+          const normalizedStrong = (profile.strong_subjects || [])
+            .filter((item) => ["biology", "chemistry", "physics", "math"].includes(item))
+            .map((item) => item as "biology" | "chemistry" | "physics" | "math");
+
+          updateStudentProfile({
+            fullName: profile.full_name || currentProfile.fullName,
+            grade: String(profile.grade_level ?? profile.grade ?? currentProfile.grade),
+            preferredLanguage: profile.language === "om" ? "om" : "en",
+            masteryScore:
+              typeof profile.mastery_score === "number"
+                ? profile.mastery_score
+                : currentProfile.masteryScore,
+            performanceBand:
+              profile.performance_band === "top"
+                ? "top"
+                : profile.performance_band === "support" || profile.performance_band === "low"
+                  ? "support"
+                  : "medium",
+            twinName: profile.twin_name || currentProfile.twinName,
+            supportSubjects: normalizedSupport,
+            strongSubjects: normalizedStrong,
+            diagnosticCompleted:
+              typeof profile.diagnostic_completed === "boolean"
+                ? profile.diagnostic_completed
+                : currentProfile.diagnosticCompleted,
+          });
+        } catch (error) {
+          console.warn("Profile fetch failed:", error);
+          if (isMounted) {
+            const message =
+              error instanceof Error ? error.message : "Failed to fetch profile";
+            setSyncError(message);
+          }
+        } finally {
+          if (isMounted) {
+            setIsSyncing(false);
+          }
+        }
+      };
+
+      syncProfile();
+
+      return () => {
+        isMounted = false;
+      };
     }, []),
   );
 
@@ -156,10 +165,7 @@ export default function ProfileScreen() {
               <Text style={styles.title}>
                 {studentProfile.fullName || "Student"}
               </Text>
-              <Text style={styles.subtitle}>
-                Grade {studentProfile.grade} learner with{" "}
-                {studentProfile.twinName}
-              </Text>
+              <Text style={styles.subtitle}>Backend profile synced</Text>
             </View>
           </View>
 

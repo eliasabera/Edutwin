@@ -48,6 +48,35 @@ function RootLayoutContent() {
   const menuPositionInitializedRef = useRef(false);
   useFonts({}); // Add fonts here if needed
 
+  const getDockedMenuPosition = (value: { x: number; y: number }) => {
+    const { width, height } = Dimensions.get("window");
+    const minX = MENU_MARGIN;
+    const maxX = width - MENU_SIZE - MENU_MARGIN;
+    const minY = insets.top + 8;
+    const maxY = height - insets.bottom - MENU_SIZE - 14;
+    const centerX = (minX + maxX) / 2;
+
+    return {
+      x: value.x < centerX ? minX : maxX,
+      y: Math.max(minY, Math.min(value.y, maxY)),
+    };
+  };
+
+  const animateMenuToDock = (value: { x: number; y: number }) => {
+    const docked = getDockedMenuPosition(value);
+    menuPosition.stopAnimation(() => {
+      Animated.spring(menuPosition, {
+        toValue: docked,
+        useNativeDriver: false,
+        friction: 7,
+        tension: 95,
+      }).start(() => {
+        menuPositionRef.current = docked;
+        setMenuAnchor(docked);
+      });
+    });
+  };
+
   useEffect(() => {
     if (!menuPositionInitializedRef.current) {
       menuPosition.setValue({ x: 18, y: initialMenuY });
@@ -71,7 +100,7 @@ function RootLayoutContent() {
     setRadialOpen(next);
     Animated.spring(radialProgress, {
       toValue: next ? 1 : 0,
-      useNativeDriver: true,
+      useNativeDriver: false,
       friction: 8,
       tension: 90,
     }).start();
@@ -82,7 +111,7 @@ function RootLayoutContent() {
     Animated.timing(radialProgress, {
       toValue: 0,
       duration: 150,
-      useNativeDriver: true,
+      useNativeDriver: false,
     }).start();
   };
 
@@ -105,24 +134,14 @@ function RootLayoutContent() {
       onPanResponderRelease: () => {
         menuPosition.flattenOffset();
         menuPosition.stopAnimation((value) => {
-          const { width, height } = Dimensions.get("window");
-          const minX = MENU_MARGIN;
-          const maxX = width - MENU_SIZE - MENU_MARGIN;
-          const minY = insets.top + 8;
-          const maxY = height - insets.bottom - MENU_SIZE - 14;
-
-          const clamped = {
-            x: Math.max(minX, Math.min(value.x, maxX)),
-            y: Math.max(minY, Math.min(value.y, maxY)),
-          };
-
-          menuPosition.setValue(clamped);
-          menuPositionRef.current = clamped;
-          setMenuAnchor(clamped);
+          animateMenuToDock(value);
         });
       },
       onPanResponderTerminate: () => {
         menuPosition.flattenOffset();
+        menuPosition.stopAnimation((value) => {
+          animateMenuToDock(value);
+        });
       },
     }),
   ).current;

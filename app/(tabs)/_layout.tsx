@@ -68,9 +68,9 @@ export default function TabsLayout() {
             marginTop: 2,
           },
           tabBarLabel: TAB_LABELS[baseRouteName] ?? baseRouteName,
-          tabBarIcon: ({ color, size }) => {
+          tabBarIcon: ({ color, size, focused }) => {
             const iconName = TAB_ICONS[baseRouteName] ?? "grid-outline";
-            if (baseRouteName === "home") {
+            if (focused) {
               return (
                 <View
                   style={{

@@ -1,4 +1,5 @@
 import { Platform } from "react-native";
+import type { StudentProfile } from "../types/domain.types";
 
 export type UserRole = "STUDENT" | "TEACHER" | "ADMIN";
 
@@ -89,6 +90,7 @@ const PROFILE_FALLBACK_URLS = (
 
 let authToken: string | null = null;
 let currentUser: AuthUser | null = null;
+let cachedStudentProfile: BackendStudentProfile | null = null;
 
 const parseJson = async (response: Response) => {
 	try {
@@ -235,6 +237,39 @@ const normalizeBackendProfile = (payload: unknown): BackendStudentProfile | null
 	return null;
 };
 
+export const getCachedStudentProfile = () => cachedStudentProfile;
+
+export const setCachedStudentProfile = (profile: BackendStudentProfile | null) => {
+	cachedStudentProfile = profile;
+};
+
+export const mapBackendProfileToStudentProfile = (
+	profile: BackendStudentProfile,
+): Partial<StudentProfile> => ({
+	fullName: profile.full_name?.trim() || "Student",
+	grade: String(profile.grade_level ?? profile.grade ?? "9"),
+	masteryScore:
+		typeof profile.mastery_score === "number" ? profile.mastery_score : 55,
+	performanceBand:
+		profile.performance_band === "top"
+			? "top"
+			: profile.performance_band === "support" || profile.performance_band === "low"
+				? "support"
+				: "medium",
+	preferredLanguage: profile.language === "om" ? "om" : "en",
+	twinName: profile.twin_name?.trim() || "EduTwin",
+	supportSubjects: (profile.support_subjects || []).filter((item) =>
+		["biology", "chemistry", "physics", "math"].includes(item),
+	) as StudentProfile["supportSubjects"],
+	strongSubjects: (profile.strong_subjects || []).filter((item) =>
+		["biology", "chemistry", "physics", "math"].includes(item),
+	) as StudentProfile["strongSubjects"],
+	diagnosticCompleted:
+		typeof profile.diagnostic_completed === "boolean"
+			? profile.diagnostic_completed
+			: false,
+});
+
 export const loginUser = async (email: string, password: string) => {
 	const data = await request<LoginResponseData>(LOGIN_URL, {
 		email,
@@ -256,6 +291,10 @@ export const registerStudent = async (payload: StudentRegistrationPayload) => {
 };
 
 export const fetchStudentProfile = async (): Promise<BackendStudentProfile> => {
+	if (cachedStudentProfile) {
+		return cachedStudentProfile;
+	}
+
 	const urls = getProfileCandidateUrls();
 	let lastError: Error | null = null;
 
@@ -264,6 +303,7 @@ export const fetchStudentProfile = async (): Promise<BackendStudentProfile> => {
 			const rawPayload = await getRequest<unknown>(url);
 			const normalized = normalizeBackendProfile(rawPayload);
 			if (normalized) {
+				cachedStudentProfile = normalized;
 				return normalized;
 			}
 			lastError = new Error("Profile payload shape is not recognized");
@@ -284,4 +324,5 @@ export const getAuthToken = () => authToken;
 export const clearAuthToken = () => {
 	authToken = null;
 	currentUser = null;
+	cachedStudentProfile = null;
 };

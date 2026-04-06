@@ -242,97 +242,100 @@ export default function ChatContainer() {
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
-      keyboardVerticalOffset={Platform.OS === "ios" ? 96 : 20}
+      keyboardVerticalOffset={0}
     >
-      <View style={styles.backgroundLayer} />
-      <View style={styles.bgOrbOne} />
-      <View style={styles.bgOrbTwo} />
-      <View style={styles.bgOrbThree} />
+      <View style={styles.content}>
+        <View style={styles.backgroundLayer} />
+        <View style={styles.bgOrbOne} />
+        <View style={styles.bgOrbTwo} />
+        <View style={styles.bgOrbThree} />
 
-      <FlatList
-        ref={flatListRef}
-        data={messages}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => (
-          <MessageBubble
-            text={item.text}
-            isUser={item.isUser}
-            timestamp={item.timestamp}
-            isTyping={
-              !item.isUser && isLoading && item.text.trim().length === 0
-            }
-          />
-        )}
-        contentContainerStyle={[
-          styles.listContent,
-          {
-            paddingTop: Math.max(insets.top, 16),
-            paddingBottom: 188 + insets.bottom,
-          },
-        ]}
-        keyboardDismissMode="interactive"
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-        ListHeaderComponent={
-          <View>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Conversation</Text>
-              {isLoading ? (
-                <ActivityIndicator size="small" color={COLORS.primary} />
-              ) : null}
+        <FlatList
+          ref={flatListRef}
+          style={styles.list}
+          data={messages}
+          keyExtractor={(item) => item.id}
+          renderItem={({ item }) => (
+            <MessageBubble
+              text={item.text}
+              isUser={item.isUser}
+              timestamp={item.timestamp}
+              isTyping={
+                !item.isUser && isLoading && item.text.trim().length === 0
+              }
+            />
+          )}
+          contentContainerStyle={[
+            styles.listContent,
+            {
+              paddingTop: Math.max(insets.top, 16),
+              paddingBottom: 20,
+            },
+          ]}
+          keyboardDismissMode="on-drag"
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          ListHeaderComponent={
+            <View>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>Conversation</Text>
+                {isLoading ? (
+                  <ActivityIndicator size="small" color={COLORS.primary} />
+                ) : null}
+              </View>
             </View>
-          </View>
-        }
-        onContentSizeChange={scrollToEnd}
-      />
+          }
+          onContentSizeChange={scrollToEnd}
+        />
 
-      <View
-        style={[
-          styles.composerWrap,
-          {
-            bottom: 86 + Math.max(insets.bottom, 10),
-          },
-        ]}
-      >
-        <View style={styles.inputBar}>
-          <TextInput
-            style={styles.input}
-            placeholder={
-              isLoading
-                ? "EduTwin is thinking..."
-                : "Ask a textbook question..."
-            }
-            value={inputText}
-            onChangeText={setInputText}
-            placeholderTextColor={COLORS.textLight}
-            editable={!isLoading}
-            multiline
-            textAlignVertical="top"
-          />
-          <TouchableOpacity
-            style={styles.subjectBtn}
-            onPress={cycleSubject}
-            disabled={isLoading}
-            activeOpacity={0.85}
-          >
-            <Ionicons name="book-outline" size={16} color="white" />
-            <Text style={styles.subjectBtnText}>{selectedSubjectLabel}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              styles.sendBtn,
-              (!inputText.trim() || isLoading) && styles.sendBtnDisabled,
-            ]}
-            onPress={() => sendMessage()}
-            disabled={!inputText.trim() || isLoading}
-            activeOpacity={0.85}
-          >
-            {isLoading ? (
-              <ActivityIndicator size="small" color="white" />
-            ) : (
-              <Ionicons name="send" size={20} color="white" />
-            )}
-          </TouchableOpacity>
+        <View
+          style={[
+            styles.composerWrap,
+            {
+              paddingBottom: Math.max(insets.bottom, 12),
+            },
+          ]}
+        >
+          <View style={styles.inputBar}>
+            <TextInput
+              style={styles.input}
+              placeholder={
+                isLoading
+                  ? "EduTwin is thinking..."
+                  : "Ask a textbook question..."
+              }
+              value={inputText}
+              onChangeText={setInputText}
+              placeholderTextColor={COLORS.textLight}
+              editable={!isLoading}
+              multiline
+              textAlignVertical="top"
+            />
+            <TouchableOpacity
+              style={styles.subjectBtn}
+              onPress={cycleSubject}
+              disabled={isLoading}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="book-outline" size={16} color="white" />
+              <Text style={styles.subjectBtnText}>{selectedSubjectLabel}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.sendBtn,
+                (!inputText.trim() || isLoading) && styles.sendBtnDisabled,
+              ]}
+              onPress={() => sendMessage()}
+              disabled={!inputText.trim() || isLoading}
+              activeOpacity={0.85}
+            >
+              {isLoading ? (
+                <ActivityIndicator size="small" color="white" />
+              ) : (
+                <Ionicons name="send" size={20} color="white" />
+              )}
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
     </KeyboardAvoidingView>
@@ -343,6 +346,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#F4F7FC",
+  },
+  content: {
+    flex: 1,
   },
   backgroundLayer: {
     ...StyleSheet.absoluteFillObject,
@@ -380,6 +386,9 @@ const styles = StyleSheet.create({
   listContent: {
     paddingHorizontal: 16,
   },
+  list: {
+    flex: 1,
+  },
   sectionHeader: {
     marginTop: 6,
     marginBottom: 10,
@@ -395,9 +404,8 @@ const styles = StyleSheet.create({
     color: "#5A6C87",
   },
   composerWrap: {
-    position: "absolute",
-    left: 16,
-    right: 16,
+    paddingHorizontal: 16,
+    paddingTop: 8,
   },
   inputBar: {
     flexDirection: "row",

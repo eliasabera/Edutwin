@@ -1,8 +1,10 @@
 import { useGamification } from "@/shared/services/gamification";
 import { useStudentProfile } from "@/shared/store/user-store";
 import { Ionicons } from "@expo/vector-icons";
-import React from "react";
+import { useRouter } from "expo-router";
+import React, { useEffect, useRef } from "react";
 import {
+  Animated,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -14,8 +16,30 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const studentProfile = useStudentProfile();
   const gamification = useGamification();
+  const thunderPulse = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(thunderPulse, {
+          toValue: 1,
+          duration: 900,
+          useNativeDriver: true,
+        }),
+        Animated.timing(thunderPulse, {
+          toValue: 0,
+          duration: 900,
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+
+    loop.start();
+    return () => loop.stop();
+  }, [thunderPulse]);
 
   const focusSubject = studentProfile.supportSubjects[0] || "biology";
   const unlockedAchievements = gamification.achievements.filter(
@@ -113,12 +137,8 @@ export default function HomeScreen() {
             />
 
             <View style={styles.energyCore}>
-              <Text style={styles.energyGrade}>
-                Grade {studentProfile.grade}
-              </Text>
-              <Text style={styles.energySubject}>{focusSubject}</Text>
-              <Text style={styles.energyReadiness}>
-                {readinessPercent}% ready
+              <Text style={styles.energyName} numberOfLines={2}>
+                {studentProfile.fullName || "Student"}
               </Text>
             </View>
           </View>
@@ -126,16 +146,30 @@ export default function HomeScreen() {
       </View>
 
       <View style={styles.actionZone}>
-        <TouchableOpacity activeOpacity={0.86} style={styles.actionOrb}>
-          <View style={styles.actionOrbInner}>
-            <Ionicons name="flash" size={34} color="#FFFFFF" />
-          </View>
-        </TouchableOpacity>
+        <Pressable onPress={() => router.push("/ai-tutor" as never)}>
+          <Animated.View
+            style={[
+              styles.actionOrb,
+              {
+                transform: [
+                  {
+                    scale: thunderPulse.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [1, 1.06],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          >
+            <View style={styles.actionOrbAura} />
+            <View style={styles.actionOrbInner}>
+              <Ionicons name="flash" size={34} color="#FFFFFF" />
+            </View>
+          </Animated.View>
+        </Pressable>
 
         <Text style={styles.actionTitle}>Start Daily Mission</Text>
-        <Text style={styles.actionSubtitle}>
-          Continue {focusSubject} with your AI twin
-        </Text>
       </View>
 
       <View style={[styles.glassDrawer, { paddingBottom: insets.bottom + 18 }]}>
@@ -149,9 +183,18 @@ export default function HomeScreen() {
           </Pressable>
         </View>
 
+        <View style={styles.drawerHintRow}>
+          <Ionicons name="chevron-back" size={16} color="#6B7A99" />
+          <Text style={styles.drawerHintText}>Swipe for more cards</Text>
+          <Ionicons name="chevron-forward" size={16} color="#6B7A99" />
+        </View>
+
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
+          decelerationRate="fast"
+          snapToInterval={130}
+          snapToAlignment="start"
           contentContainerStyle={styles.tileRow}
         >
           {drawerTiles.map((tile) => (
@@ -229,6 +272,7 @@ const styles = StyleSheet.create({
   },
   headerArea: {
     alignItems: "center",
+    paddingHorizontal: 18,
   },
   energyWrap: {
     width: "100%",
@@ -284,21 +328,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 4,
   },
-  energyGrade: {
+  energyName: {
     color: "#1A202C",
     fontWeight: "800",
-    fontSize: 20,
-  },
-  energySubject: {
-    color: "#5A6C87",
-    fontWeight: "700",
-    fontSize: 14,
-    textTransform: "capitalize",
-  },
-  energyReadiness: {
-    color: "#0B5FFF",
-    fontWeight: "700",
-    fontSize: 12,
+    fontSize: 18,
+    textAlign: "center",
+    paddingHorizontal: 12,
   },
   energyStatLeft: {
     position: "absolute",
@@ -344,12 +379,13 @@ const styles = StyleSheet.create({
     fontSize: 11,
   },
   actionZone: {
-    marginTop: 14,
+    marginTop: 18,
+    marginBottom: 8,
     alignItems: "center",
   },
   actionOrb: {
-    width: 152,
-    height: 152,
+    width: 154,
+    height: 154,
     borderRadius: 999,
     backgroundColor: "rgba(255, 255, 255, 0.75)",
     borderWidth: 1,
@@ -361,9 +397,16 @@ const styles = StyleSheet.create({
     shadowRadius: 22,
     elevation: 10,
   },
+  actionOrbAura: {
+    position: "absolute",
+    width: 130,
+    height: 130,
+    borderRadius: 999,
+    backgroundColor: "rgba(11, 95, 255, 0.08)",
+  },
   actionOrbInner: {
-    width: 94,
-    height: 94,
+    width: 92,
+    height: 92,
     borderRadius: 999,
     backgroundColor: "#0B5FFF",
     alignItems: "center",
@@ -374,34 +417,27 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   actionTitle: {
-    marginTop: 16,
+    marginTop: 14,
     color: "#1A202C",
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: "800",
-  },
-  actionSubtitle: {
-    marginTop: 4,
-    color: "#718096",
-    fontSize: 14,
-    fontWeight: "500",
-    textTransform: "capitalize",
   },
   glassDrawer: {
     position: "absolute",
     left: 0,
     right: 0,
     bottom: 0,
-    minHeight: "40%",
-    backgroundColor: "rgba(255, 255, 255, 0.72)",
-    borderTopLeftRadius: 32,
-    borderTopRightRadius: 32,
+    minHeight: "38%",
+    backgroundColor: "rgba(255, 255, 255, 0.82)",
+    borderTopLeftRadius: 36,
+    borderTopRightRadius: 36,
     borderWidth: 1,
     borderColor: "rgba(11, 95, 255, 0.1)",
-    paddingTop: 10,
+    paddingTop: 12,
     shadowColor: "#0E234E",
-    shadowOpacity: 0.12,
-    shadowRadius: 18,
-    elevation: 10,
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+    elevation: 12,
   },
   drawerHandle: {
     alignSelf: "center",
@@ -439,22 +475,35 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     fontSize: 12,
   },
+  drawerHintRow: {
+    marginBottom: 14,
+    paddingHorizontal: 18,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  drawerHintText: {
+    color: "#6B7A99",
+    fontSize: 12,
+    fontWeight: "600",
+  },
   tileRow: {
     paddingHorizontal: 18,
     gap: 12,
-    paddingBottom: 4,
+    paddingBottom: 10,
   },
   glassTile: {
-    width: 118,
-    height: 118,
-    borderRadius: 20,
-    padding: 12,
+    width: 124,
+    height: 124,
+    borderRadius: 24,
+    padding: 14,
     justifyContent: "space-between",
-    backgroundColor: "rgba(255, 255, 255, 0.84)",
+    backgroundColor: "rgba(255, 255, 255, 0.9)",
     borderWidth: 1,
     borderColor: "rgba(11, 95, 255, 0.12)",
-    shadowOpacity: 0.22,
-    shadowRadius: 10,
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
     elevation: 5,
   },
   tileIconWrap: {

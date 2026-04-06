@@ -13,7 +13,12 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { COLORS } from "../../../shared/constants/colors";
-import { loginUser } from "../../../shared/services/auth-service";
+import {
+  fetchStudentProfile,
+  loginUser,
+  mapBackendProfileToStudentProfile,
+} from "../../../shared/services/auth-service";
+import { updateStudentProfile } from "../../../shared/store/user-store";
 
 export default function LoginComponent() {
   const router = useRouter();
@@ -33,6 +38,8 @@ export default function LoginComponent() {
       setErrorMessage("");
       setIsLoading(true);
       await loginUser(trimmedEmail, password);
+      const backendProfile = await fetchStudentProfile();
+      updateStudentProfile(mapBackendProfileToStudentProfile(backendProfile));
       router.replace("/(tabs)/home" as never);
     } catch (error) {
       const message =
