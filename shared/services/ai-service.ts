@@ -24,8 +24,6 @@ const NODE_API_BASE_URL =
 // Python service endpoints used by practice/grade flows
 const PYTHON_API_BASE_URL =
   process.env.EXPO_PUBLIC_PYTHON_API_BASE_URL || `http://${API_HOST}:8000`;
-const USE_DIRECT_PYTHON_CHAT =
-  process.env.EXPO_PUBLIC_DIRECT_PYTHON_CHAT === "true";
 const CHAT_API_URL = `${NODE_API_BASE_URL}/api/ai/chat`;
 const CHAT_STREAM_API_URL = `${NODE_API_BASE_URL}/api/ai/chat/stream`;
 const CHAT_HISTORY_URL = (sessionId: string) =>
@@ -50,11 +48,6 @@ const buildAuthHeaders = (): Record<string, string> => {
 };
 
 const buildChatHeaders = (): Record<string, string> => {
-  if (USE_DIRECT_PYTHON_CHAT) {
-    return {
-      "Content-Type": "application/json",
-    };
-  }
   return buildAuthHeaders();
 };
 
@@ -67,17 +60,49 @@ const unique = (items: string[]) => {
   });
 };
 
-const getChatEndpointCandidates = (stream = false) => {
+const connectTimeoutMs = 2500;
+let lastInternetCheckAt = 0;
+let lastInternetCheckResult: boolean | null = null;
+
+const isOnlineNow = async () => {
+  const now = Date.now();
+  if (lastInternetCheckResult !== null && now - lastInternetCheckAt < 30000) {
+    return lastInternetCheckResult;
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), connectTimeoutMs);
+
+  try {
+    const response = await fetch("https://clients3.google.com/generate_204", {
+      method: "GET",
+      signal: controller.signal,
+    });
+    const isOnline = response.ok || response.status === 204;
+    lastInternetCheckAt = now;
+    lastInternetCheckResult = isOnline;
+    return isOnline;
+  } catch {
+    lastInternetCheckAt = now;
+    lastInternetCheckResult = false;
+    return false;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+};
+
+const getChatEndpointCandidates = async (stream = false) => {
   const suffix = stream ? "/chat/stream" : "/chat";
   const nodeEndpoint = stream ? CHAT_STREAM_API_URL : CHAT_API_URL;
   const pythonEndpoint = `${PYTHON_API_BASE_URL}${suffix}`;
   const liquidEndpoint = `${LIQUID_FALLBACK_BASE_URL}${suffix}`;
 
-  if (USE_DIRECT_PYTHON_CHAT) {
-    return unique([pythonEndpoint, liquidEndpoint]);
+  const online = await isOnlineNow();
+  if (!online) {
+    return unique([liquidEndpoint]);
   }
 
-  return unique([pythonEndpoint, liquidEndpoint, nodeEndpoint]);
+  return unique([nodeEndpoint, liquidEndpoint]);
 };
 
 const parseSessionIdFromHeaders = (response: Response) => {
@@ -243,7 +268,7 @@ export const generateAIResponse = async (
     }),
   );
 
-  const endpoints = getChatEndpointCandidates(false);
+  const endpoints = await getChatEndpointCandidates(false);
 
   try {
     let lastError: unknown = null;
@@ -302,7 +327,7 @@ export const generateAIResponseStream = async (
     }),
   );
 
-  const endpoints = getChatEndpointCandidates(true);
+  const endpoints = await getChatEndpointCandidates(true);
 
   try {
     let lastError: unknown = null;
@@ -488,7 +513,8 @@ export const gradePracticeAnswer = async (
 };
 
 export const fetchChatHistory = async (sessionId?: string) => {
-  if (USE_DIRECT_PYTHON_CHAT) {
+  const online = await isOnlineNow();
+  if (!online) {
     return [] as PersistedChatMessage[];
   }
 
