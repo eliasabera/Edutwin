@@ -1,16 +1,16 @@
 import { useStudentProfile } from "@/shared/store/user-store";
+import TextbookReaderScreen from "@/src/modules/textbook/TextbookReaderScreen";
 import { Ionicons } from "@expo/vector-icons";
 import React, { useMemo, useState } from "react";
 import {
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import TextbookReaderScreen from "@/src/modules/textbook/TextbookReaderScreen";
 
 type Subject = "Biology" | "Chemistry" | "Physics" | "Math";
 
