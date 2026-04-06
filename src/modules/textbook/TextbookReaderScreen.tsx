@@ -1,16 +1,22 @@
+import {
+    generateAIResponseStream,
+    type ChatHistoryItem,
+} from "@/shared/services/ai-service";
+import type { SubjectName } from "@/shared/types/domain.types";
 import { Ionicons } from "@expo/vector-icons";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Animated,
-  Easing,
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
+    ActivityIndicator,
+    Animated,
+    Easing,
+    KeyboardAvoidingView,
+    Platform,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -37,13 +43,48 @@ const SAMPLE_PARAGRAPH =
 const SAMPLE_SELECTION =
   "Cellular respiration is the process by which cells convert glucose and oxygen into ATP, the energy currency of the cell.";
 
-export default function TextbookReaderScreen() {
+type ReaderLesson = {
+  subject: "Biology" | "Chemistry" | "Physics" | "Math";
+  unit: string;
+  topic: string;
+};
+
+type TextbookReaderScreenProps = {
+  lesson?: ReaderLesson;
+};
+
+type CopilotMessage = {
+  id: string;
+  text: string;
+  isUser: boolean;
+};
+
+const subjectToTutor = {
+  Biology: "biology",
+  Chemistry: "chemistry",
+  Physics: "physics",
+  Math: "math",
+} as const satisfies Record<ReaderLesson["subject"], SubjectName>;
+
+const buildSheetHistory = (messages: CopilotMessage[]): ChatHistoryItem[] =>
+  messages
+    .filter((message) => message.text.trim().length > 0)
+    .slice(-6)
+    .map((message) => ({
+      role: message.isUser ? "user" : "assistant",
+      content: message.text.trim(),
+    }));
+
+export default function TextbookReaderScreen({
+  lesson,
+}: TextbookReaderScreenProps) {
   const insets = useSafeAreaInsets();
 
   const [selectedText, setSelectedText] = useState("");
   const [isCopilotOpen, setIsCopilotOpen] = useState(false);
   const [question, setQuestion] = useState("");
-  const [aiResponse, setAiResponse] = useState("");
+  const [isAsking, setIsAsking] = useState(false);
+  const [copilotMessages, setCopilotMessages] = useState<CopilotMessage[]>([]);
 
   const tooltipProgress = useRef(new Animated.Value(0)).current;
   const sheetProgress = useRef(new Animated.Value(0)).current;
@@ -98,6 +139,9 @@ export default function TextbookReaderScreen() {
   const clearSelection = () => {
     setSelectedText("");
     setIsCopilotOpen(false);
+    setQuestion("");
+    setCopilotMessages([]);
+    setIsAsking(false);
   };
 
   const openCopilot = () => {
@@ -111,19 +155,80 @@ export default function TextbookReaderScreen() {
     setIsCopilotOpen(false);
   };
 
-  const askCopilot = () => {
-    const prompt = question.trim();
-    const explanationBase =
-      "This sentence means your cells break down glucose with oxygen to produce ATP, which is the immediate energy source used for growth, repair, and movement.";
-
-    if (!prompt) {
-      setAiResponse(explanationBase);
+  const askCopilot = async () => {
+    if (isAsking || !selectedText.trim()) {
       return;
     }
 
-    setAiResponse(
-      `${explanationBase} In your question, \"${prompt}\", the key idea is that ATP is the usable form of energy produced by this process.`,
-    );
+    const userQuestion = question.trim();
+    const userText =
+      userQuestion || "Explain this highlighted text in simple terms.";
+    const prompt =
+      userQuestion.length > 0
+        ? `Help me understand this highlighted textbook text from ${lesson?.subject ?? "Biology"}.\n\nHighlighted text:\n\"${selectedText}\"\n\nStudent question:\n${userQuestion}`
+        : `Help me understand this highlighted textbook text from ${lesson?.subject ?? "Biology"}.\n\nHighlighted text:\n\"${selectedText}\"\n\nGive a concise explanation and one study tip.`;
+
+    const userMessage: CopilotMessage = {
+      id: `user-${Date.now()}`,
+      text: userText,
+      isUser: true,
+    };
+    const aiMessageId = `ai-${Date.now()}`;
+    const aiPlaceholder: CopilotMessage = {
+      id: aiMessageId,
+      text: "",
+      isUser: false,
+    };
+
+    const history = buildSheetHistory(copilotMessages);
+    const subject = lesson ? subjectToTutor[lesson.subject] : "biology";
+
+    setCopilotMessages((current) => [...current, userMessage, aiPlaceholder]);
+    setQuestion("");
+    setIsAsking(true);
+
+    let streamed = "";
+
+    try {
+      const finalText = await generateAIResponseStream(
+        prompt,
+        (chunk) => {
+          streamed += chunk;
+          setCopilotMessages((current) =>
+            current.map((message) =>
+              message.id === aiMessageId
+                ? { ...message, text: streamed || " " }
+                : message,
+            ),
+          );
+        },
+        subject,
+        history,
+      );
+
+      const resolved =
+        (finalText || streamed).trim() ||
+        "I could not generate an explanation right now.";
+
+      setCopilotMessages((current) =>
+        current.map((message) =>
+          message.id === aiMessageId ? { ...message, text: resolved } : message,
+        ),
+      );
+    } catch {
+      setCopilotMessages((current) =>
+        current.map((message) =>
+          message.id === aiMessageId
+            ? {
+                ...message,
+                text: "I cannot reach the EduTwin server right now. Please make sure the backend is running.",
+              }
+            : message,
+        ),
+      );
+    } finally {
+      setIsAsking(false);
+    }
   };
 
   return (
@@ -238,26 +343,64 @@ export default function TextbookReaderScreen() {
               placeholder="Ask EduTwin about this sentence..."
               placeholderTextColor={TOKENS.textMuted}
               multiline
+              editable={!isAsking}
             />
-            <Pressable style={styles.askButton} onPress={askCopilot}>
-              <Ionicons name="send" size={16} color={TOKENS.textHeading} />
-              <Text style={styles.askButtonText}>Ask</Text>
+            <Pressable
+              style={[
+                styles.askButton,
+                (isAsking || !selectedText.trim()) && styles.askButtonDisabled,
+              ]}
+              onPress={askCopilot}
+              disabled={isAsking || !selectedText.trim()}
+            >
+              {isAsking ? (
+                <ActivityIndicator size="small" color={TOKENS.textHeading} />
+              ) : (
+                <Ionicons name="send" size={16} color={TOKENS.textHeading} />
+              )}
+              <Text style={styles.askButtonText}>
+                {isAsking ? "Thinking" : "Ask"}
+              </Text>
             </Pressable>
           </View>
 
-          {aiResponse ? (
-            <View style={styles.responseCard}>
-              <Text style={styles.responseLabel}>AI Response</Text>
-              <Text style={styles.responseText}>{aiResponse}</Text>
-            </View>
-          ) : (
-            <View style={styles.responseCard}>
-              <Text style={styles.responseLabel}>AI Response</Text>
+          <View style={styles.responseCard}>
+            <Text style={styles.responseLabel}>Textbook Chat</Text>
+            {copilotMessages.length ? (
+              <ScrollView
+                style={styles.sheetChatScroll}
+                contentContainerStyle={styles.sheetChatContent}
+                showsVerticalScrollIndicator={false}
+              >
+                {copilotMessages.map((message) => (
+                  <View
+                    key={message.id}
+                    style={[
+                      styles.sheetBubble,
+                      message.isUser
+                        ? styles.sheetBubbleUser
+                        : styles.sheetBubbleAi,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.sheetBubbleText,
+                        message.isUser
+                          ? styles.sheetBubbleUserText
+                          : styles.sheetBubbleAiText,
+                      ]}
+                    >
+                      {message.text || "..."}
+                    </Text>
+                  </View>
+                ))}
+              </ScrollView>
+            ) : (
               <Text style={styles.responseTextMuted}>
-                Your explanation will appear here.
+                Ask a question to start chatting about this highlighted text.
               </Text>
-            </View>
-          )}
+            )}
+          </View>
         </Animated.View>
       </KeyboardAvoidingView>
     </View>
@@ -496,6 +639,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(11, 95, 255, 0.8)",
   },
+  askButtonDisabled: {
+    opacity: 0.6,
+  },
   askButtonText: {
     color: TOKENS.textHeading,
     fontSize: 12,
@@ -516,16 +662,48 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     letterSpacing: 0.4,
   },
-  responseText: {
-    marginTop: 8,
-    color: TOKENS.textBody,
-    fontSize: 14,
-    lineHeight: 22,
-  },
   responseTextMuted: {
     marginTop: 8,
     color: TOKENS.textMuted,
     fontSize: 14,
     lineHeight: 22,
+  },
+  sheetChatScroll: {
+    marginTop: 8,
+    maxHeight: 170,
+  },
+  sheetChatContent: {
+    gap: 8,
+    paddingBottom: 4,
+  },
+  sheetBubble: {
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderWidth: 1,
+  },
+  sheetBubbleUser: {
+    alignSelf: "flex-end",
+    maxWidth: "86%",
+    backgroundColor: "rgba(11, 95, 255, 0.14)",
+    borderColor: "rgba(11, 95, 255, 0.38)",
+  },
+  sheetBubbleAi: {
+    alignSelf: "flex-start",
+    maxWidth: "90%",
+    backgroundColor: TOKENS.glassStrong,
+    borderColor: TOKENS.glassBorder,
+  },
+  sheetBubbleText: {
+    fontSize: 13,
+    lineHeight: 20,
+  },
+  sheetBubbleUserText: {
+    color: TOKENS.textHeading,
+    fontWeight: "700",
+  },
+  sheetBubbleAiText: {
+    color: TOKENS.textBody,
+    fontWeight: "500",
   },
 });

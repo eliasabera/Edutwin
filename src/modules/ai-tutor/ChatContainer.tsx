@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import { useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
     ActivityIndicator,
@@ -59,8 +60,14 @@ const buildChatHistory = (messages: ChatMessage[]): ChatHistoryItem[] =>
 
 export default function ChatContainer() {
   const insets = useSafeAreaInsets();
+  const params = useLocalSearchParams<{
+    prefill?: string | string[];
+    prefillKey?: string | string[];
+    subject?: string | string[];
+  }>();
   const flatListRef = useRef<FlatList<ChatMessage>>(null);
   const studentProfile = useStudentProfile();
+  const handledPrefillRef = useRef<string | null>(null);
 
   const [inputText, setInputText] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -161,6 +168,16 @@ export default function ChatContainer() {
     subjectOptions.find((subject) => subject.value === selectedSubject)
       ?.label ?? "Subject";
 
+  const normalizedPrefill = Array.isArray(params.prefill)
+    ? params.prefill[0]
+    : params.prefill;
+  const normalizedSubject = Array.isArray(params.subject)
+    ? params.subject[0]
+    : params.subject;
+  const normalizedPrefillKey = Array.isArray(params.prefillKey)
+    ? params.prefillKey[0]
+    : params.prefillKey;
+
   const sendMessage = async (presetText?: string) => {
     const trimmed = (presetText ?? inputText).trim();
     if (!trimmed || isLoading) {
@@ -237,6 +254,31 @@ export default function ChatContainer() {
       scrollToEnd();
     }
   };
+
+  useEffect(() => {
+    if (!normalizedPrefill || !normalizedPrefill.trim()) {
+      return;
+    }
+
+    const prefillIdentity = `${normalizedPrefillKey || "no-key"}::${normalizedPrefill}`;
+
+    if (handledPrefillRef.current === prefillIdentity) {
+      return;
+    }
+
+    const candidateSubject = (normalizedSubject || "").toLowerCase();
+    if (
+      candidateSubject === "biology" ||
+      candidateSubject === "chemistry" ||
+      candidateSubject === "physics" ||
+      candidateSubject === "math"
+    ) {
+      setSelectedSubject(candidateSubject as SubjectName);
+    }
+
+    handledPrefillRef.current = prefillIdentity;
+    void sendMessage(normalizedPrefill);
+  }, [normalizedPrefill, normalizedPrefillKey, normalizedSubject]);
 
   return (
     <KeyboardAvoidingView
