@@ -2,21 +2,21 @@ import { Ionicons } from "@expo/vector-icons";
 import { Link, useRouter } from "expo-router";
 import React, { useState } from "react";
 import {
-  Alert,
-  KeyboardAvoidingView,
-  Platform,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    Alert,
+    KeyboardAvoidingView,
+    Platform,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { COLORS } from "../../../shared/constants/colors";
 import {
-  fetchStudentProfile,
-  loginUser,
-  mapBackendProfileToStudentProfile,
+    fetchStudentProfile,
+    loginUser,
+    mapBackendProfileToStudentProfile,
 } from "../../../shared/services/auth-service";
 import { updateStudentProfile } from "../../../shared/store/user-store";
 

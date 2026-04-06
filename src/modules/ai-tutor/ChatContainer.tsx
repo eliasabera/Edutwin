@@ -1,24 +1,24 @@
 import { Ionicons } from "@expo/vector-icons";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
-  ActivityIndicator,
-  FlatList,
-  KeyboardAvoidingView,
-  Platform,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    FlatList,
+    KeyboardAvoidingView,
+    Platform,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS } from "../../../shared/constants/colors";
 import {
-  fetchChatHistory,
-  generateAIResponseStream,
-  getChatSessionId,
-  type ChatHistoryItem,
-  type PersistedChatMessage,
+    fetchChatHistory,
+    generateAIResponseStream,
+    getChatSessionId,
+    type ChatHistoryItem,
+    type PersistedChatMessage,
 } from "../../../shared/services/ai-service";
 import { useStudentProfile } from "../../../shared/store/user-store";
 import type { SubjectName } from "../../../shared/types/domain.types";
