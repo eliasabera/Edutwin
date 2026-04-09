@@ -2,6 +2,7 @@ import InteractiveQuizScreen from "@/src/modules/practice/InteractiveQuizScreen"
 import { useLocalSearchParams } from "expo-router";
 
 type QuizQuestion = {
+  id?: string;
   type: "mcq" | "true_false" | "short";
   question: string;
   options?: string[];
@@ -11,7 +12,7 @@ type QuizQuestion = {
 };
 
 export default function InteractiveQuizRoute() {
-  const params = useLocalSearchParams<{ questions?: string }>();
+  const params = useLocalSearchParams<{ questions?: string; quizId?: string }>();
 
   let questions: QuizQuestion[] = [];
   const rawQuestions =
@@ -27,5 +28,7 @@ export default function InteractiveQuizRoute() {
     }
   }
 
-  return <InteractiveQuizScreen route={{ params: { questions } }} />;
+  const quizId = typeof params.quizId === "string" ? params.quizId : undefined;
+
+  return <InteractiveQuizScreen route={{ params: { questions, quizId } }} />;
 }

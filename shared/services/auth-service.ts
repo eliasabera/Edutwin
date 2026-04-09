@@ -1,4 +1,5 @@
 import { Platform } from "react-native";
+import Constants from "expo-constants";
 import type { StudentProfile } from "../types/domain.types";
 
 export type UserRole = "STUDENT" | "TEACHER" | "ADMIN";
@@ -59,7 +60,41 @@ export type BackendStudentProfile = {
 	diagnostic_completed?: boolean;
 };
 
-const AUTH_HOST = Platform.OS === "android" ? "10.0.2.2" : "localhost";
+const extractHostFromExpo = () => {
+	const hostUri =
+		Constants.expoConfig?.hostUri ||
+		Constants.expoGoConfig?.developer?.tool ||
+		Constants.linkingUri;
+
+	if (!hostUri) return null;
+
+	const sanitized = String(hostUri)
+		.replace(/^https?:\/\//, "")
+		.replace(/^exp:\/\//, "")
+		.split("/")[0]
+		.trim();
+
+	if (!sanitized) return null;
+
+	const host = sanitized.includes(":")
+		? sanitized.slice(0, sanitized.lastIndexOf(":"))
+		: sanitized;
+
+	return host || null;
+};
+
+const resolveAuthHost = () => {
+	const explicitHost = process.env.EXPO_PUBLIC_AUTH_HOST?.trim();
+	if (explicitHost) return explicitHost;
+
+	const expoHost = extractHostFromExpo();
+	if (expoHost) return expoHost;
+
+	// Keep emulator-friendly fallback when no LAN host can be detected.
+	return Platform.OS === "android" ? "10.0.2.2" : "localhost";
+};
+
+const AUTH_HOST = resolveAuthHost();
 const DEFAULT_REGISTER_URL = `http://${AUTH_HOST}:5000/api/auth/register`;
 
 const REGISTER_URL =
@@ -132,13 +167,18 @@ const request = async <TData>(
 	url: string,
 	requestBody: Record<string, unknown>,
 ): Promise<TData> => {
-	const response = await fetch(url, {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-		},
-		body: JSON.stringify(requestBody),
-	});
+	let response: Response;
+	try {
+		response = await fetch(url, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify(requestBody),
+		});
+	} catch {
+		throw new Error(`Network request failed. Check backend reachability at ${url}`);
+	}
 
 	const responseBody = await parseJson(response);
 
@@ -179,10 +219,16 @@ const getRequest = async <TData>(url: string): Promise<TData> => {
 	let lastErrorMessage = "Failed to fetch profile";
 
 	for (const headers of headerVariants) {
-		const response = await fetch(url, {
-			method: "GET",
-			headers,
-		});
+		let response: Response;
+		try {
+			response = await fetch(url, {
+				method: "GET",
+				headers,
+			});
+		} catch {
+			lastErrorMessage = `Network request failed. Check backend reachability at ${url}`;
+			break;
+		}
 
 		const responseBody = await parseJson(response);
 		const successFlag = isRecord(responseBody) ? responseBody.success : undefined;

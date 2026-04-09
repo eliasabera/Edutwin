@@ -7,7 +7,9 @@ import { useEffect, useRef, useState } from "react";
 import {
   Animated,
   Dimensions,
+  Easing,
   PanResponder,
+  Platform,
   Pressable,
   StyleSheet,
   TouchableOpacity,
@@ -38,6 +40,7 @@ function RootLayoutContent() {
   const insets = useSafeAreaInsets();
   const [appIsReady, setAppIsReady] = useState(false);
   const [radialOpen, setRadialOpen] = useState(false);
+  const [radialVisible, setRadialVisible] = useState(false);
   const initialMenuY = insets.top + 8;
   const menuPosition = useRef(
     new Animated.ValueXY({ x: 18, y: initialMenuY }),
@@ -97,23 +100,51 @@ function RootLayoutContent() {
 
   const toggleRadial = () => {
     const next = !radialOpen;
+    if (next) {
+      setRadialVisible(true);
+    }
     setRadialOpen(next);
-    Animated.spring(radialProgress, {
+    radialProgress.stopAnimation();
+    Animated.timing(radialProgress, {
       toValue: next ? 1 : 0,
       useNativeDriver: false,
-      friction: 8,
-      tension: 90,
-    }).start();
+      duration: next ? 210 : 160,
+      easing: next ? Easing.out(Easing.cubic) : Easing.in(Easing.cubic),
+    }).start(({ finished }) => {
+      if (finished && !next) {
+        setRadialVisible(false);
+      }
+    });
   };
 
-  const closeRadial = () => {
+  const closeRadial = (immediate = false) => {
+    if (immediate) {
+      radialProgress.stopAnimation();
+      radialProgress.setValue(0);
+      setRadialOpen(false);
+      setRadialVisible(false);
+      return;
+    }
+
     setRadialOpen(false);
+    radialProgress.stopAnimation();
     Animated.timing(radialProgress, {
       toValue: 0,
       duration: 150,
+      easing: Easing.in(Easing.cubic),
       useNativeDriver: false,
-    }).start();
+    }).start(({ finished }) => {
+      if (finished) {
+        setRadialVisible(false);
+      }
+    });
   };
+
+  const panMoveEvent = useRef(
+    Animated.event([null, { dx: menuPosition.x, dy: menuPosition.y }], {
+      useNativeDriver: false,
+    }),
+  ).current;
 
   const menuPanResponder = useRef(
     PanResponder.create({
@@ -122,15 +153,14 @@ function RootLayoutContent() {
         return Math.abs(gestureState.dx) > 4 || Math.abs(gestureState.dy) > 4;
       },
       onPanResponderGrant: () => {
-        if (radialOpen) {
-          closeRadial();
+        if (radialOpen || radialVisible) {
+          closeRadial(true);
         }
-        menuPosition.setOffset(menuPositionRef.current);
+        menuPosition.stopAnimation();
+        menuPosition.extractOffset();
         menuPosition.setValue({ x: 0, y: 0 });
       },
-      onPanResponderMove: (_event, gestureState) => {
-        menuPosition.setValue({ x: gestureState.dx, y: gestureState.dy });
-      },
+      onPanResponderMove: panMoveEvent,
       onPanResponderRelease: () => {
         menuPosition.flattenOffset();
         menuPosition.stopAnimation((value) => {
@@ -230,10 +260,11 @@ function RootLayoutContent() {
       {showSidebar && (
         <>
           {radialOpen && (
-            <Pressable style={styles.backdrop} onPress={closeRadial} />
+            <Pressable style={styles.backdrop} onPress={() => closeRadial()} />
           )}
 
-          {sidebarActions.map(([_label, path, icon], index) => {
+          {radialVisible &&
+            sidebarActions.map(([_label, path, icon], index) => {
             const count = sidebarActions.length;
             const angleDeg =
               arcStartDeg + (index * (arcEndDeg - arcStartDeg)) / (count - 1);
@@ -291,7 +322,7 @@ function RootLayoutContent() {
                 </TouchableOpacity>
               </Animated.View>
             );
-          })}
+            })}
 
           <Animated.View
             style={[
@@ -343,6 +374,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.18,
     shadowRadius: 12,
     elevation: 8,
+    ...(Platform.OS === "android"
+      ? { renderToHardwareTextureAndroid: true }
+      : { shouldRasterizeIOS: true }),
   },
   menuButtonTouch: {
     width: "100%",
@@ -364,6 +398,9 @@ const styles = StyleSheet.create({
     height: ACTION_SIZE,
     zIndex: 32,
     alignItems: "center",
+    ...(Platform.OS === "android"
+      ? { renderToHardwareTextureAndroid: true }
+      : { shouldRasterizeIOS: true }),
   },
   radialActionButton: {
     width: ACTION_SIZE,

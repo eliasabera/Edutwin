@@ -3,11 +3,11 @@ import TextbookReaderScreen from "@/src/modules/textbook/TextbookReaderScreen";
 import { Ionicons } from "@expo/vector-icons";
 import React, { useMemo, useState } from "react";
 import {
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -21,8 +21,7 @@ type Unit = {
 
 type ActiveLesson = {
   subject: Subject;
-  unit: string;
-  topic: string;
+  textbookUrl: string;
 };
 
 const SUBJECTS: Subject[] = ["Biology", "Chemistry", "Physics", "Math"];
@@ -33,12 +32,16 @@ const SUBJECT_ICONS: Record<Subject, keyof typeof Ionicons.glyphMap> = {
   Math: "calculator-outline",
 };
 
-const SUBJECT_OFFSETS: Record<Subject, number> = {
-  Biology: -4,
-  Chemistry: 2,
-  Physics: 0,
-  Math: 4,
+const SUBJECT_BOOK_COVERS: Record<Subject, string> = {
+  Biology: "https://picsum.photos/id/1040/420/620",
+  Chemistry: "https://picsum.photos/id/1033/420/620",
+  Physics: "https://picsum.photos/id/1076/420/620",
+  Math: "https://picsum.photos/id/1062/420/620",
 };
+
+const DEFAULT_TEXTBOOK_URL =
+  "https://vzqerbreduraaluicaxe.supabase.co/storage/v1/object/public/3d-models/G9-Biology-STB-2023-web.pdf";
+
 const SUBJECT_UNITS: Record<Subject, Unit[]> = {
   Biology: [
     {
@@ -102,23 +105,7 @@ const SUBJECT_UNITS: Record<Subject, Unit[]> = {
 export default function TextbookScreen() {
   const insets = useSafeAreaInsets();
   const studentProfile = useStudentProfile();
-  const [selectedSubject, setSelectedSubject] = useState<Subject | null>(null);
-  const [unitDropdownOpen, setUnitDropdownOpen] = useState(false);
-  const [topicDropdownOpen, setTopicDropdownOpen] = useState(false);
-
-  const unitsForSubject = useMemo(
-    () => (selectedSubject ? SUBJECT_UNITS[selectedSubject] : []),
-    [selectedSubject],
-  );
-
-  const [selectedUnit, setSelectedUnit] = useState("");
-  const [selectedTopic, setSelectedTopic] = useState("");
   const [activeLesson, setActiveLesson] = useState<ActiveLesson | null>(null);
-
-  const topicsForUnit = useMemo(() => {
-    const unit = unitsForSubject.find((entry) => entry.name === selectedUnit);
-    return unit?.topics ?? [];
-  }, [selectedUnit, unitsForSubject]);
 
   const totalTopics = useMemo(
     () =>
@@ -155,44 +142,27 @@ export default function TextbookScreen() {
         const isSupport = supportSet.has(key);
         const isStrong = strongSet.has(key);
 
-        const base = Math.max(28, Math.min(88, studentProfile.masteryScore));
-        const supportDelta = isSupport ? -22 : 0;
-        const strongDelta = isStrong ? 12 : 0;
-        const progress = Math.max(
-          24,
-          Math.min(95, base + SUBJECT_OFFSETS[subject] + supportDelta + strongDelta),
-        );
-
         const priority = isSupport ? 0 : isStrong ? 2 : 1;
 
         return {
           subject,
           isSupport,
           isStrong,
-          progress,
+          coverImage: SUBJECT_BOOK_COVERS[subject],
           priority,
-          statusLabel: isSupport
-            ? "Support Needed"
-            : isStrong
-              ? "Strong Subject"
-              : "On Track",
         };
       });
 
       return cards.sort((a, b) => a.priority - b.priority);
     },
-    [strongSet, studentProfile.masteryScore, supportSet],
+    [strongSet, supportSet],
   );
 
   const handleSelectSubject = (subject: Subject) => {
-    setSelectedSubject(subject);
-    const nextUnits = SUBJECT_UNITS[subject];
-    const nextUnit = nextUnits[0]?.name ?? "";
-    const nextTopic = nextUnits[0]?.topics[0] ?? "";
-    setSelectedUnit(nextUnit);
-    setSelectedTopic(nextTopic);
-    setUnitDropdownOpen(false);
-    setTopicDropdownOpen(false);
+    setActiveLesson({
+      subject,
+      textbookUrl: DEFAULT_TEXTBOOK_URL,
+    });
   };
 
   if (activeLesson) {
@@ -225,8 +195,7 @@ export default function TextbookScreen() {
           styles.content,
           {
             paddingTop: insets.top + 18,
-            paddingBottom:
-              (selectedSubject ? 120 : 24) + Math.max(insets.bottom, 8),
+            paddingBottom: 24 + Math.max(insets.bottom, 8),
           },
         ]}
         showsVerticalScrollIndicator={false}
@@ -238,241 +207,71 @@ export default function TextbookScreen() {
           </View>
         </View>
 
-        {!selectedSubject ? (
-          <View style={styles.subjectGridOnly}>
-            {subjectCards.map((entry) => {
-              const accent = entry.isSupport
-                ? "#FF9600"
-                : entry.isStrong
-                  ? "#17A34A"
-                  : "#0B5FFF";
+        <View style={styles.subjectGridOnly}>
+          {subjectCards.map((entry) => {
+            const accent = entry.isSupport
+              ? "#FF9600"
+              : entry.isStrong
+                ? "#17A34A"
+                : "#0B5FFF";
 
-              return (
-                <Pressable
-                  key={entry.subject}
-                  style={({ pressed }) => [
-                    styles.subjectCard,
-                    entry.isSupport && styles.subjectCardSupport,
-                    pressed && styles.subjectCardPressed,
-                  ]}
-                  onPress={() => handleSelectSubject(entry.subject)}
-                >
-                  <View style={styles.subjectCardTopRow}>
-                    <View style={styles.subjectTitleWrap}>
-                      <View style={styles.subjectIconWrap}>
-                        <Ionicons
-                          name={SUBJECT_ICONS[entry.subject]}
-                          size={15}
-                          color="#0B5FFF"
-                        />
-                      </View>
-                      <Text style={styles.subjectCardTitle}>
-                        {entry.subject === "Math" ? "Mathematics" : entry.subject}
-                      </Text>
+            return (
+              <Pressable
+                key={entry.subject}
+                style={({ pressed }) => [
+                  styles.subjectCard,
+                  entry.isSupport && styles.subjectCardSupport,
+                  pressed && styles.subjectCardPressed,
+                ]}
+                onPress={() => handleSelectSubject(entry.subject)}
+              >
+                <View style={styles.subjectCardTopRow}>
+                  <View style={styles.subjectTitleWrap}>
+                    <View style={styles.subjectIconWrap}>
+                      <Ionicons
+                        name={SUBJECT_ICONS[entry.subject]}
+                        size={15}
+                        color="#0B5FFF"
+                      />
                     </View>
-                    {entry.isSupport || entry.isStrong ? (
-                      <View
-                        style={[
-                          styles.statusChip,
-                          entry.isSupport
-                            ? styles.statusChipSupport
-                            : styles.statusChipStrong,
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.statusChipText,
-                            entry.isSupport
-                              ? styles.statusChipTextSupport
-                              : styles.statusChipTextStrong,
-                          ]}
-                        >
-                          {entry.isSupport ? "Support" : "Strong"}
-                        </Text>
-                      </View>
-                    ) : null}
+                    <Text style={styles.subjectCardTitle}>
+                      {entry.subject === "Math" ? "Mathematics" : entry.subject}
+                    </Text>
                   </View>
-
-                  <Text style={styles.subjectCardStatus}>{entry.statusLabel}</Text>
-
-                  <View style={styles.subjectProgressWrap}>
-                    <View style={styles.subjectProgressTrack} />
+                  {entry.isSupport || entry.isStrong ? (
                     <View
                       style={[
-                        styles.subjectProgressArc,
-                        {
-                          borderTopColor: accent,
-                          borderRightColor: accent,
-                          transform: [
-                            {
-                              rotate: `${Math.max(8, Math.round((entry.progress / 100) * 360))}deg`,
-                            },
-                          ],
-                        },
+                        styles.statusChip,
+                        entry.isSupport
+                          ? styles.statusChipSupport
+                          : styles.statusChipStrong,
                       ]}
-                    />
-                    <Text style={styles.subjectProgressValue}>{entry.progress}%</Text>
-                  </View>
-                  <Text style={styles.progressLabel}>Tap to continue</Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        ) : (
-          <View style={styles.pathCard}>
-            <View style={styles.pathCardTopRow}>
-              <View>
-                <Text style={styles.formTitle}>{selectedSubject} Learning Path</Text>
-                <Text style={styles.formHint}>
-                  Select a unit and topic to continue.
-                </Text>
-              </View>
-              <Pressable
-                style={styles.changeSubjectBtn}
-                onPress={() => {
-                  setSelectedSubject(null);
-                  setUnitDropdownOpen(false);
-                  setTopicDropdownOpen(false);
-                }}
-              >
-                <Ionicons name="swap-horizontal" size={14} color="#0B5FFF" />
-                <Text style={styles.changeSubjectText}>Subjects</Text>
+                    >
+                      <Text
+                        style={[
+                          styles.statusChipText,
+                          entry.isSupport
+                            ? styles.statusChipTextSupport
+                            : styles.statusChipTextStrong,
+                        ]}
+                      >
+                        {entry.isSupport ? "Support" : "Strong"}
+                      </Text>
+                    </View>
+                  ) : null}
+                </View>
+
+                <View style={[styles.subjectImageFrame, { borderColor: accent }]}>
+                  <Image
+                    source={{ uri: entry.coverImage }}
+                    style={styles.subjectImage}
+                    resizeMode="cover"
+                  />
+                </View>
               </Pressable>
-            </View>
-
-            <View style={styles.pathTag}>
-              <Ionicons name="bookmarks-outline" size={13} color="#0B5FFF" />
-              <Text style={styles.pathTagText}>Step 2 of 2</Text>
-            </View>
-
-            <Text style={styles.dropdownLabel}>Unit</Text>
-            <TouchableOpacity
-              style={styles.dropdownTrigger}
-              onPress={() => {
-                setUnitDropdownOpen((prev) => !prev);
-                setTopicDropdownOpen(false);
-              }}
-              activeOpacity={0.9}
-            >
-              <Text style={styles.dropdownTriggerText}>{selectedUnit}</Text>
-              <Ionicons
-                name={unitDropdownOpen ? "chevron-up" : "chevron-down"}
-                size={18}
-                color="#35507E"
-              />
-            </TouchableOpacity>
-            {unitDropdownOpen && (
-              <View style={styles.dropdownMenu}>
-                {unitsForSubject.map((unit) => {
-                  const active = unit.name === selectedUnit;
-                  return (
-                    <TouchableOpacity
-                      key={unit.name}
-                      style={[
-                        styles.dropdownItem,
-                        active && styles.dropdownItemActive,
-                      ]}
-                      onPress={() => {
-                        setSelectedUnit(unit.name);
-                        setSelectedTopic(unit.topics[0] ?? "");
-                        setUnitDropdownOpen(false);
-                        setTopicDropdownOpen(false);
-                      }}
-                      activeOpacity={0.9}
-                    >
-                      <Text
-                        style={[
-                          styles.dropdownItemText,
-                          active && styles.dropdownItemTextActive,
-                        ]}
-                      >
-                        {unit.name}
-                      </Text>
-                      {active ? (
-                        <Ionicons
-                          name="checkmark-circle"
-                          size={18}
-                          color="#0B5FFF"
-                        />
-                      ) : null}
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            )}
-
-            <Text style={styles.dropdownLabel}>Topic</Text>
-            <TouchableOpacity
-              style={styles.dropdownTrigger}
-              onPress={() => {
-                setTopicDropdownOpen((prev) => !prev);
-                setUnitDropdownOpen(false);
-              }}
-              activeOpacity={0.9}
-            >
-              <Text style={styles.dropdownTriggerText}>{selectedTopic}</Text>
-              <Ionicons
-                name={topicDropdownOpen ? "chevron-up" : "chevron-down"}
-                size={18}
-                color="#35507E"
-              />
-            </TouchableOpacity>
-            {topicDropdownOpen && (
-              <View style={styles.dropdownMenu}>
-                {topicsForUnit.map((topic) => {
-                  const active = topic === selectedTopic;
-                  return (
-                    <TouchableOpacity
-                      key={topic}
-                      style={[
-                        styles.dropdownItem,
-                        active && styles.dropdownItemActive,
-                      ]}
-                      onPress={() => {
-                        setSelectedTopic(topic);
-                        setTopicDropdownOpen(false);
-                      }}
-                      activeOpacity={0.9}
-                    >
-                      <Text
-                        style={[
-                          styles.dropdownItemText,
-                          active && styles.dropdownItemTextActive,
-                        ]}
-                      >
-                        {topic}
-                      </Text>
-                      {active ? (
-                        <Ionicons
-                          name="checkmark-circle"
-                          size={18}
-                          color="#0B5FFF"
-                        />
-                      ) : null}
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            )}
-
-            <Pressable
-              style={({ pressed }) => [
-                styles.openButton,
-                pressed && styles.openButtonPressed,
-              ]}
-              onPress={() =>
-                setActiveLesson({
-                  subject: selectedSubject,
-                  unit: selectedUnit,
-                  topic: selectedTopic,
-                })
-              }
-            >
-              <Text style={styles.openButtonText}>Open Topic</Text>
-              <Ionicons name="arrow-forward" size={16} color="#FFFFFF" />
-            </Pressable>
-          </View>
-        )}
+            );
+          })}
+        </View>
       </ScrollView>
     </View>
   );
@@ -659,176 +458,16 @@ const styles = StyleSheet.create({
   statusChipTextStrong: {
     color: "#14833B",
   },
-  subjectCardStatus: {
-    color: "#5A6C87",
-    fontSize: 12,
-    fontWeight: "700",
-    minHeight: 16,
-  },
-  subjectProgressWrap: {
-    width: 58,
-    height: 58,
-    borderRadius: 999,
-    alignItems: "center",
-    justifyContent: "center",
-    position: "relative",
-  },
-  subjectProgressTrack: {
-    position: "absolute",
-    width: 58,
-    height: 58,
-    borderRadius: 999,
-    borderWidth: 4,
-    borderColor: "#D8E6FF",
-    backgroundColor: "rgba(255,255,255,0.7)",
-  },
-  subjectProgressArc: {
-    position: "absolute",
-    width: 58,
-    height: 58,
-    borderRadius: 999,
-    borderWidth: 4,
-    borderColor: "transparent",
-  },
-  subjectProgressValue: {
-    color: "#1A202C",
-    fontSize: 13,
-    fontWeight: "800",
-  },
-  progressLabel: {
-    color: "#35507E",
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  pathCard: {
-    backgroundColor: "rgba(255, 255, 255, 0.84)",
-    borderRadius: 20,
-    padding: 14,
+  subjectImageFrame: {
+    width: "100%",
+    height: 120,
+    borderRadius: 12,
     borderWidth: 1.5,
-    borderColor: "rgba(11, 95, 255, 0.26)",
-    gap: 10,
-    shadowColor: "#0B5FFF",
-    shadowOpacity: 0.14,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 4,
-  },
-  pathCardTopRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    gap: 10,
-  },
-  changeSubjectBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "rgba(11, 95, 255, 0.28)",
-    backgroundColor: "rgba(11, 95, 255, 0.08)",
-  },
-  changeSubjectText: {
-    color: "#0B5FFF",
-    fontSize: 11,
-    fontWeight: "800",
-  },
-  pathTag: {
-    alignSelf: "flex-start",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    backgroundColor: "#EAF1FF",
-    borderWidth: 1,
-    borderColor: "#CFE0FF",
-  },
-  pathTagText: {
-    color: "#2F4E87",
-    fontSize: 11,
-    fontWeight: "700",
-  },
-  formTitle: {
-    color: "#1A202C",
-    fontWeight: "800",
-    fontSize: 15,
-  },
-  formHint: {
-    color: "#5A6C87",
-    fontSize: 12,
-    marginTop: -2,
-  },
-  dropdownLabel: {
-    marginTop: 2,
-    color: "#35507E",
-    fontWeight: "700",
-    fontSize: 12,
-  },
-  dropdownTrigger: {
-    minHeight: 46,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "#D6E4FF",
-    backgroundColor: "#F5F8FF",
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 10,
-  },
-  dropdownTriggerText: {
-    flex: 1,
-    color: "#2E4A86",
-    fontWeight: "700",
-  },
-  dropdownMenu: {
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "#D6E4FF",
-    backgroundColor: "rgba(255,255,255,0.96)",
     overflow: "hidden",
+    backgroundColor: "#DDE8FF",
   },
-  dropdownItem: {
-    minHeight: 44,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    borderBottomWidth: 1,
-    borderBottomColor: "#ECF2FF",
-  },
-  dropdownItemActive: {
-    backgroundColor: "#EEF4FF",
-  },
-  dropdownItemText: {
-    color: "#35507E",
-    fontWeight: "700",
-  },
-  dropdownItemTextActive: {
-    color: "#0B5FFF",
-  },
-  openButton: {
-    marginTop: 4,
-    minHeight: 46,
-    borderRadius: 14,
-    backgroundColor: "#0B5FFF",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-  },
-  openButtonPressed: {
-    opacity: 0.92,
-  },
-  openButtonText: {
-    color: "#FFFFFF",
-    fontSize: 14,
-    fontWeight: "800",
+  subjectImage: {
+    width: "100%",
+    height: "100%",
   },
 });

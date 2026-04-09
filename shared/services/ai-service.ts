@@ -1,3 +1,4 @@
+import Constants from "expo-constants";
 import { Platform } from "react-native";
 import { getStudentProfile } from "../store/user-store";
 import type { SubjectName } from "../types/domain.types";
@@ -15,7 +16,41 @@ export type PersistedChatMessage = {
   timestamp?: string;
 };
 
-const API_HOST = Platform.OS === "android" ? "10.0.2.2" : "localhost";
+const extractHostFromExpo = () => {
+  const hostUri =
+    Constants.expoConfig?.hostUri ||
+    Constants.expoGoConfig?.developer?.tool ||
+    Constants.linkingUri;
+
+  if (!hostUri) return null;
+
+  const sanitized = String(hostUri)
+    .replace(/^https?:\/\//, "")
+    .replace(/^exp:\/\//, "")
+    .split("/")[0]
+    .trim();
+
+  if (!sanitized) return null;
+
+  const host = sanitized.includes(":")
+    ? sanitized.slice(0, sanitized.lastIndexOf(":"))
+    : sanitized;
+
+  return host || null;
+};
+
+const resolveApiHost = () => {
+  const explicitHost = process.env.EXPO_PUBLIC_AI_HOST?.trim();
+  if (explicitHost) return explicitHost;
+
+  const expoHost = extractHostFromExpo();
+  if (expoHost) return expoHost;
+
+  // Emulator fallback when no LAN host can be detected.
+  return Platform.OS === "android" ? "10.0.2.2" : "localhost";
+};
+
+const API_HOST = resolveApiHost();
 
 // Node backend endpoints (protected by auth middleware)
 const NODE_API_BASE_URL =
@@ -28,8 +63,16 @@ const CHAT_API_URL = `${NODE_API_BASE_URL}/api/ai/chat`;
 const CHAT_STREAM_API_URL = `${NODE_API_BASE_URL}/api/ai/chat/stream`;
 const CHAT_HISTORY_URL = (sessionId: string) =>
   `${NODE_API_BASE_URL}/api/ai/sessions/${sessionId}/messages`;
-const PRACTICE_URL = `${PYTHON_API_BASE_URL}/practice`;
+const CHAT_HISTORY_CANDIDATES = [
+  `${NODE_API_BASE_URL}/api/ai/sessions/latest/messages`,
+  `${NODE_API_BASE_URL}/api/ai/chat/history`,
+  `${NODE_API_BASE_URL}/api/ai/chat/messages`,
+  `${NODE_API_BASE_URL}/api/ai/sessions/latest`,
+  `${NODE_API_BASE_URL}/api/ai/history`,
+];
 const GRADE_URL = `${PYTHON_API_BASE_URL}/grade`;
+const QUIZ_GENERATE_URL = `${NODE_API_BASE_URL}/api/quizzes/generate/ai-practice`;
+const QUIZ_SUBMIT_URL = `${NODE_API_BASE_URL}/api/quizzes/submit`;
 const LIQUID_FALLBACK_BASE_URL = `http://${API_HOST}:8001`;
 
 const buildAuthHeaders = (): Record<string, string> => {
@@ -61,6 +104,7 @@ const unique = (items: string[]) => {
 };
 
 const connectTimeoutMs = 2500;
+const practiceGenerateTimeoutMs = 90000;
 let lastInternetCheckAt = 0;
 let lastInternetCheckResult: boolean | null = null;
 
@@ -97,12 +141,8 @@ const getChatEndpointCandidates = async (stream = false) => {
   const pythonEndpoint = `${PYTHON_API_BASE_URL}${suffix}`;
   const liquidEndpoint = `${LIQUID_FALLBACK_BASE_URL}${suffix}`;
 
-  const online = await isOnlineNow();
-  if (!online) {
-    return unique([liquidEndpoint]);
-  }
-
-  return unique([nodeEndpoint, liquidEndpoint]);
+  // Always try local/LAN services first; internet reachability does not imply LAN reachability.
+  return unique([pythonEndpoint, nodeEndpoint, liquidEndpoint]);
 };
 
 const parseSessionIdFromHeaders = (response: Response) => {
@@ -242,6 +282,16 @@ const extractPersistedMessages = (payload: unknown): PersistedChatMessage[] => {
   }
 
   return [];
+};
+
+const getHistoryEndpointCandidates = (sessionId?: string) => {
+  const endpoints = [...CHAT_HISTORY_CANDIDATES];
+
+  if (sessionId && sessionId.trim()) {
+    endpoints.unshift(CHAT_HISTORY_URL(sessionId.trim()));
+  }
+
+  return unique(endpoints);
 };
 
 const withSessionPayload = (payload: Record<string, unknown>) => {
@@ -407,7 +457,8 @@ export const generateAIResponseStream = async (
   }
 };
 
-type PracticeQuestion = {
+export type PracticeQuestion = {
+  id?: string;
   type: "mcq" | "true_false" | "short";
   question: string;
   options?: string[];
@@ -425,9 +476,20 @@ export type PracticePayload = {
 
 export type PracticeResponse = {
   questions: PracticeQuestion[];
+  quizId?: string | null;
   error?: string | null;
   subject?: string;
   grade?: string;
+};
+
+export type BackendPracticeQuizSummary = {
+  id: string;
+  title: string;
+  topic: string;
+  subject: string;
+  questionCount: number;
+  createdAt: string;
+  source: "teacher" | "ai";
 };
 
 export type GradePayload = {
@@ -442,46 +504,344 @@ export type GradeResponse = {
   feedback: string;
 };
 
+type SubmitPracticeAttemptPayload = {
+  quizId: string;
+  answers: Array<{
+    questionId: string;
+    providedAnswer: string;
+  }>;
+};
+
+const mapPracticeQuestionType = (value: unknown): PracticeQuestion["type"] | null => {
+  const raw = String(value || "").trim().toUpperCase();
+  if (raw === "MCQ" || raw === "mcq") return "mcq";
+  if (raw === "TRUE_FALSE" || raw === "TRUEFALSE" || raw === "true_false") {
+    return "true_false";
+  }
+  if (raw === "SHORT" || raw === "SHORT_ANSWER" || raw === "short") {
+    return "short";
+  }
+  return null;
+};
+
+const isAbortError = (error: unknown) => {
+  if (!error) return false;
+  if (typeof error === "object" && "name" in (error as Record<string, unknown>)) {
+    return String((error as Record<string, unknown>).name) === "AbortError";
+  }
+  return String(error).includes("AbortError");
+};
+
+const normalizeComparableText = (value: string) =>
+  String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const normalizePracticeQuestion = (item: unknown): PracticeQuestion | null => {
+  if (!item || typeof item !== "object") {
+    return null;
+  }
+
+  const record = item as Record<string, unknown>;
+  const type =
+    mapPracticeQuestionType(record.type) || mapPracticeQuestionType(record.question_type);
+  const question =
+    (typeof record.question === "string" && record.question.trim()) ||
+    (typeof record.question_text === "string" && record.question_text.trim()) ||
+    "";
+  const answer =
+    (typeof record.answer === "string" && record.answer.trim()) ||
+    (typeof record.correct_answer === "string" && record.correct_answer.trim()) ||
+    "";
+  const explanation =
+    (typeof record.explanation === "string" && record.explanation.trim()) ||
+    "Review the textbook concept and compare your reasoning to the model answer.";
+  const rawHint =
+    (typeof record.hint === "string" && record.hint.trim()) ||
+    "Focus on the key concept from your textbook chapter.";
+  const hint =
+    normalizeComparableText(rawHint) === normalizeComparableText(explanation)
+      ? "Focus on the key concept from your textbook chapter."
+      : rawHint;
+
+  if (!type || !question || !answer) {
+    return null;
+  }
+
+  const options = Array.isArray(record.options)
+    ? record.options
+        .map((option) => String(option || "").trim())
+        .filter((option) => option.length > 0)
+    : undefined;
+
+  return {
+    id:
+      (typeof record._id === "string" && record._id) ||
+      (typeof record.id === "string" && record.id) ||
+      undefined,
+    type,
+    question,
+    options:
+      type === "true_false" && (!options || options.length < 2)
+        ? ["TRUE", "FALSE"]
+        : options,
+    answer,
+    hint,
+    explanation,
+  };
+};
+
+const extractPracticeQuestions = (payload: unknown): PracticeQuestion[] => {
+  if (!payload || typeof payload !== "object") {
+    return [];
+  }
+
+  const record = payload as Record<string, unknown>;
+  let items: unknown[] = [];
+
+  if (Array.isArray(record.questions)) {
+    items = record.questions;
+  } else if (record.data && typeof record.data === "object") {
+    const nested = record.data as Record<string, unknown>;
+    if (Array.isArray(nested.questions)) {
+      items = nested.questions;
+    }
+  }
+
+  return items.map(normalizePracticeQuestion).filter(Boolean) as PracticeQuestion[];
+};
+
 export const generatePracticeQuestions = async (
   payload: PracticePayload,
 ): Promise<PracticeResponse> => {
+  const studentProfile = buildStudentProfilePayload();
+  const requestPayload = {
+    ...payload,
+    grade: studentProfile.grade,
+    student_profile: studentProfile,
+  };
+
   try {
-    const studentProfile = buildStudentProfilePayload();
-    const response = await fetch(PRACTICE_URL, {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(
+      () => controller.abort(),
+      practiceGenerateTimeoutMs,
+    );
+    const response = await fetch(QUIZ_GENERATE_URL, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: buildAuthHeaders(),
+      body: JSON.stringify(requestPayload),
+      signal: controller.signal,
+    }).finally(() => {
+      clearTimeout(timeoutId);
+    });
+
+    if (!response.ok) {
+      throw new Error(await readErrorMessage(response));
+    }
+
+    const data = await response.json();
+    const questions = extractPracticeQuestions(data);
+    const quizId =
+      (typeof data?.data?.quiz?._id === "string" && data.data.quiz._id) ||
+      (typeof data?.data?.quiz?.id === "string" && data.data.quiz.id) ||
+      null;
+
+    if (!quizId) {
+      return {
+        questions: [],
+        quizId: null,
+        error: "Backend did not return a persisted quiz id. Please retry.",
+      };
+    }
+
+    if (!questions.length) {
+      return {
+        questions: [],
+        quizId,
+        error: "Backend returned no quiz questions. Please retry.",
+      };
+    }
+
+    return {
+      questions,
+      quizId,
+      error: null,
+      subject: String(payload.subject || ""),
+      grade: String(studentProfile.grade || ""),
+    };
+  } catch (error) {
+    if (isAbortError(error)) {
+      return {
+        questions: [],
+        quizId: null,
+        error:
+          "Quiz generation timed out on backend. Try a smaller question count or retry in a moment.",
+      };
+    }
+
+    console.warn("Backend quiz generation failed:", error);
+    return {
+      questions: [],
+      quizId: null,
+      error: "Backend quiz generation failed. Please retry.",
+    };
+  }
+};
+
+export const submitPracticeAttempt = async (payload: SubmitPracticeAttemptPayload) => {
+  if (!payload.quizId || !payload.answers.length) {
+    return { success: false, message: "Missing quiz id or answers" };
+  }
+
+  try {
+    const response = await fetch(QUIZ_SUBMIT_URL, {
+      method: "POST",
+      headers: buildAuthHeaders(),
       body: JSON.stringify({
-        ...payload,
-        grade: studentProfile.grade,
-        student_profile: studentProfile,
+        quiz_id: payload.quizId,
+        answers: payload.answers.map((item) => ({
+          question_id: item.questionId,
+          provided_answer: item.providedAnswer,
+        })),
       }),
     });
 
     if (!response.ok) {
-      throw new Error(`Server Error: ${response.status}`);
+      throw new Error(await readErrorMessage(response));
     }
 
     const data = await response.json();
-    return {
-      questions: data.questions || [],
-      error: data.error,
-      subject: data.subject,
-      grade: data.grade,
-    };
+    return { success: true, data };
   } catch (error) {
-    console.error("Practice Failed:", error);
     return {
-      questions: [],
-      error: "I could not generate textbook practice right now.",
+      success: false,
+      message: error instanceof Error ? error.message : "Failed to save attempt",
     };
   }
+};
+
+export const fetchMyPracticeQuizzes = async (): Promise<BackendPracticeQuizSummary[]> => {
+  try {
+    const response = await fetch(`${NODE_API_BASE_URL}/api/quizzes/my-practice`, {
+      method: "GET",
+      headers: buildAuthHeaders(),
+    });
+
+    if (!response.ok) {
+      throw new Error(await readErrorMessage(response));
+    }
+
+    const body = await response.json();
+    const items = Array.isArray(body?.data) ? body.data : [];
+
+    const normalized = items
+      .map((item: Record<string, unknown>) => ({
+        id: String(item?._id || item?.id || ""),
+        title: String(item?.title || "AI Practice"),
+        topic: String(item?.topic || ""),
+        subject: String(item?.subject || item?.subject_name || "subject"),
+        questionCount: Number(item?.question_count || 0),
+        createdAt: String(item?.created_at || item?.createdAt || ""),
+        source: "ai" as const,
+      }))
+      .filter((item: BackendPracticeQuizSummary) => item.id.length > 0);
+
+    const seen = new Set<string>();
+    return normalized.filter((item: BackendPracticeQuizSummary) => {
+      if (seen.has(item.id)) {
+        return false;
+      }
+      seen.add(item.id);
+      return true;
+    });
+  } catch (error) {
+    console.warn("Failed to fetch practice quizzes:", error);
+    return [];
+  }
+};
+
+export const fetchPracticeLibraryQuizzes = async (): Promise<BackendPracticeQuizSummary[]> => {
+  try {
+    const response = await fetch(`${NODE_API_BASE_URL}/api/quizzes/library`, {
+      method: "GET",
+      headers: buildAuthHeaders(),
+    });
+
+    if (!response.ok) {
+      throw new Error(await readErrorMessage(response));
+    }
+
+    const body = await response.json();
+    const items = Array.isArray(body?.data) ? body.data : [];
+
+    const normalized = items
+      .map((item: Record<string, unknown>) => ({
+        id: String(item?._id || item?.id || ""),
+        title: String(item?.title || "Teacher Practice"),
+        topic: String(item?.topic || ""),
+        subject: String(item?.subject || item?.subject_name || "subject"),
+        questionCount: Number(item?.question_count || 0),
+        createdAt: String(item?.created_at || item?.createdAt || ""),
+        source: "teacher" as const,
+      }))
+      .filter((item: BackendPracticeQuizSummary) => item.id.length > 0);
+
+    const seen = new Set<string>();
+    return normalized.filter((item: BackendPracticeQuizSummary) => {
+      if (seen.has(item.id)) {
+        return false;
+      }
+      seen.add(item.id);
+      return true;
+    });
+  } catch (error) {
+    console.warn("Failed to fetch practice library quizzes:", error);
+    return [];
+  }
+};
+
+export const fetchPracticeQuizDetail = async (quizId: string) => {
+  if (!quizId) {
+    return { quizId: "", questions: [] as PracticeQuestion[] };
+  }
+
+  const response = await fetch(`${NODE_API_BASE_URL}/api/quizzes/${quizId}`, {
+    method: "GET",
+    headers: buildAuthHeaders(),
+  });
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response));
+  }
+
+  const body = await response.json();
+  const data = body?.data || {};
+  const questionItems = Array.isArray(data?.questions) ? data.questions : [];
+
+  return {
+    quizId,
+    questions: questionItems
+      .map(normalizePracticeQuestion)
+      .filter(Boolean) as PracticeQuestion[],
+  };
 };
 
 export const gradePracticeAnswer = async (
   payload: GradePayload,
 ): Promise<GradeResponse> => {
+  const normalize = (value: string) =>
+    String(value || "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, " ");
+
+  const localIsCorrect =
+    normalize(payload.student_answer) === normalize(payload.correct_answer);
+
   try {
     const response = await fetch(GRADE_URL, {
       method: "POST",
@@ -504,10 +864,16 @@ export const gradePracticeAnswer = async (
           : "I checked your answer using the textbook rules.",
     };
   } catch (error) {
-    console.error("Grade Failed:", error);
+    // Grade endpoint may be unavailable in some environments; fallback to local answer check.
+    console.warn("Grade endpoint unavailable, using local grading fallback.");
+
+    const fallbackFeedback = localIsCorrect
+      ? "Correct. Great job."
+      : "Not correct. Review the hint and explanation, then compare with the expected answer.";
+
     return {
-      is_correct: false,
-      feedback: "I could not grade this answer right now.",
+      is_correct: localIsCorrect,
+      feedback: fallbackFeedback,
     };
   }
 };
@@ -519,27 +885,40 @@ export const fetchChatHistory = async (sessionId?: string) => {
   }
 
   const resolvedSessionId = sessionId || currentChatSessionId;
-  if (!resolvedSessionId) {
-    return [] as PersistedChatMessage[];
+  const endpoints = getHistoryEndpointCandidates(resolvedSessionId || undefined);
+
+  let lastError: unknown = null;
+
+  for (const endpoint of endpoints) {
+    try {
+      const response = await fetch(endpoint, {
+        method: "GET",
+        headers: buildAuthHeaders(),
+      });
+
+      if (!response.ok) {
+        lastError = new Error(await readErrorMessage(response));
+        continue;
+      }
+
+      const data = await response.json();
+      const extractedSessionId = extractSessionId(data);
+      if (extractedSessionId) {
+        setChatSessionId(extractedSessionId);
+      }
+
+      const messages = extractPersistedMessages(data);
+      if (Array.isArray(messages) && messages.length > 0) {
+        return messages;
+      }
+    } catch (error) {
+      lastError = error;
+    }
   }
 
-  const response = await fetch(CHAT_HISTORY_URL(resolvedSessionId), {
-    method: "GET",
-    headers: buildAuthHeaders(),
-  });
-
-  if (!response.ok) {
-    throw new Error(await readErrorMessage(response));
+  if (lastError) {
+    throw lastError;
   }
 
-  const data = await response.json();
-  const extractedSessionId = extractSessionId(data);
-  if (extractedSessionId) {
-    setChatSessionId(extractedSessionId);
-  }
-
-  const messages = extractPersistedMessages(data);
-  return Array.isArray(messages)
-    ? messages
-    : ([] as PersistedChatMessage[]);
+  return [] as PersistedChatMessage[];
 };

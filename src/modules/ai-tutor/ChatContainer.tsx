@@ -1,25 +1,26 @@
 import { Ionicons } from "@expo/vector-icons";
+import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
-    ActivityIndicator,
-    FlatList,
-    KeyboardAvoidingView,
-    Platform,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  FlatList,
+  KeyboardAvoidingView,
+  Platform,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS } from "../../../shared/constants/colors";
 import {
-    fetchChatHistory,
-    generateAIResponseStream,
-    getChatSessionId,
-    type ChatHistoryItem,
-    type PersistedChatMessage,
+  fetchChatHistory,
+  generateAIResponseStream,
+  getChatSessionId,
+  type ChatHistoryItem,
+  type PersistedChatMessage,
 } from "../../../shared/services/ai-service";
 import { useStudentProfile } from "../../../shared/store/user-store";
 import type { SubjectName } from "../../../shared/types/domain.types";
@@ -52,7 +53,7 @@ const buildChatHistory = (messages: ChatMessage[]): ChatHistoryItem[] =>
     .filter(
       (message) => message.id !== "welcome" && message.text.trim().length > 0,
     )
-    .slice(-6)
+    .slice(-20)
     .map((message) => ({
       role: message.isUser ? "user" : "assistant",
       content: message.text.trim(),
@@ -60,6 +61,7 @@ const buildChatHistory = (messages: ChatMessage[]): ChatHistoryItem[] =>
 
 export default function ChatContainer() {
   const insets = useSafeAreaInsets();
+  const tabBarHeight = useBottomTabBarHeight();
   const params = useLocalSearchParams<{
     prefill?: string | string[];
     prefillKey?: string | string[];
@@ -136,7 +138,18 @@ export default function ChatContainer() {
 
         if (!mapped.length) return;
 
-        const hydrated = [buildWelcomeMessage(), ...mapped];
+        const deduped = mapped.filter(
+          (message, index, arr) =>
+            index ===
+            arr.findIndex(
+              (candidate) =>
+                candidate.text === message.text &&
+                candidate.isUser === message.isUser &&
+                candidate.timestamp === message.timestamp,
+            ),
+        );
+
+        const hydrated = [buildWelcomeMessage(), ...deduped];
         setMessages(hydrated);
         cachedChatMessages = hydrated;
         setTimeout(scrollToEnd, 0);
@@ -334,7 +347,7 @@ export default function ChatContainer() {
           style={[
             styles.composerWrap,
             {
-              paddingBottom: Math.max(insets.bottom, 12),
+              paddingBottom: Math.max(insets.bottom + tabBarHeight + 8, 12),
             },
           ]}
         >

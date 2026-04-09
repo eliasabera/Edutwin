@@ -1,7 +1,8 @@
 import { COLORS } from "@/shared/constants/colors";
 import { Ionicons } from "@expo/vector-icons";
 import { Tabs } from "expo-router";
-import { View } from "react-native";
+import { useEffect, useRef } from "react";
+import { Animated, Easing, Platform, StyleSheet, View } from "react-native";
 
 type TabIconName =
   | "chatbubbles-outline"
@@ -28,6 +29,79 @@ const TAB_LABELS: Record<string, string> = {
 
 const getBaseRouteName = (routeName: string) =>
   routeName.replace(/\/index$/, "");
+
+type TabBarIconProps = {
+  iconName: TabIconName;
+  color: string;
+  size: number;
+  focused: boolean;
+};
+
+function TabBarIcon({ iconName, color, size, focused }: TabBarIconProps) {
+  const progress = useRef(new Animated.Value(focused ? 1 : 0)).current;
+
+  useEffect(() => {
+    Animated.timing(progress, {
+      toValue: focused ? 1 : 0,
+      duration: focused ? 220 : 170,
+      easing: focused
+        ? Easing.out(Easing.cubic)
+        : Easing.inOut(Easing.quad),
+      useNativeDriver: true,
+    }).start();
+  }, [focused, progress]);
+
+  return (
+    <View style={styles.iconRoot}>
+      <Animated.View
+        style={[
+          styles.activeIconBubble,
+          {
+            opacity: progress,
+            transform: [
+              {
+                translateY: progress.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [2, -8],
+                }),
+              },
+              {
+                scale: progress.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [0.9, 1],
+                }),
+              },
+            ],
+          },
+        ]}
+      >
+        <Ionicons name={iconName} size={24} color={COLORS.white} />
+      </Animated.View>
+
+      <Animated.View
+        style={[
+          styles.inactiveIconLayer,
+          {
+            opacity: progress.interpolate({
+              inputRange: [0, 1],
+              outputRange: [1, 0],
+            }),
+            transform: [
+              {
+                scale: progress.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [1, 0.97],
+                }),
+              },
+            ],
+          },
+        ]}
+      >
+        <Ionicons name={iconName} size={size} color={color} />
+      </Animated.View>
+    </View>
+  );
+}
 
 export default function TabsLayout() {
   return (
@@ -70,28 +144,15 @@ export default function TabsLayout() {
           tabBarLabel: TAB_LABELS[baseRouteName] ?? baseRouteName,
           tabBarIcon: ({ color, size, focused }) => {
             const iconName = TAB_ICONS[baseRouteName] ?? "grid-outline";
-            if (focused) {
-              return (
-                <View
-                  style={{
-                    backgroundColor: COLORS.primary,
-                    width: 52,
-                    height: 52,
-                    borderRadius: 26,
-                    justifyContent: "center",
-                    alignItems: "center",
-                    marginTop: -18,
-                    shadowColor: COLORS.primary,
-                    shadowOpacity: 0.25,
-                    shadowRadius: 10,
-                    elevation: 8,
-                  }}
-                >
-                  <Ionicons name={iconName} size={24} color={COLORS.white} />
-                </View>
-              );
-            }
-            return <Ionicons name={iconName} size={size} color={color} />;
+
+            return (
+              <TabBarIcon
+                iconName={iconName}
+                color={color}
+                size={size}
+                focused={focused}
+              />
+            );
           },
         };
       }}
@@ -134,3 +195,33 @@ export default function TabsLayout() {
     </Tabs>
   );
 }
+
+const styles = StyleSheet.create({
+  iconRoot: {
+    width: 52,
+    height: 52,
+    alignItems: "center",
+    justifyContent: "center",
+    ...(Platform.OS === "android"
+      ? { renderToHardwareTextureAndroid: true }
+      : { shouldRasterizeIOS: true }),
+  },
+  activeIconBubble: {
+    position: "absolute",
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: COLORS.primary,
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: COLORS.primary,
+    shadowOpacity: 0.14,
+    shadowRadius: 5,
+    elevation: 3,
+  },
+  inactiveIconLayer: {
+    position: "absolute",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+});

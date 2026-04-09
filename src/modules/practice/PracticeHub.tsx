@@ -1,20 +1,19 @@
 import { COLORS } from "@/shared/constants/colors";
 import {
+  fetchMyPracticeQuizzes,
+  fetchPracticeLibraryQuizzes,
+  fetchPracticeQuizDetail,
   generatePracticeQuestions,
+  type BackendPracticeQuizSummary,
   type PracticeResponse,
 } from "@/shared/services/ai-service";
 import { recordPracticeCompletion } from "@/shared/services/gamification";
-import {
-  saveGeneratedPracticeSet,
-  usePracticeLibrary,
-  type PracticeQuestionType,
-  type PracticeSet,
-} from "@/shared/store/practice-store";
+import type { PracticeQuestionType, PracticeSet } from "@/shared/store/practice-store";
 import { useStudentProfile } from "@/shared/store/user-store";
 import type { SubjectName } from "@/shared/types/domain.types";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   ScrollView,
@@ -55,7 +54,6 @@ export default function PracticeHub() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const studentProfile = useStudentProfile();
-  const { teacherPracticeSets, generatedPracticeSets } = usePracticeLibrary();
   const [subject, setSubject] = useState<SubjectName>("biology");
   const [topic, setTopic] = useState("");
   const [questionCount, setQuestionCount] = useState("5");
@@ -67,9 +65,17 @@ export default function PracticeHub() {
   const [subjectDropdownOpen, setSubjectDropdownOpen] = useState(false);
   const [typeDropdownOpen, setTypeDropdownOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isFetchingLibrary, setIsFetchingLibrary] = useState(false);
+  const [isFetchingSaved, setIsFetchingSaved] = useState(false);
   const [errorText, setErrorText] = useState("");
   const [session, setSession] = useState<PracticeSession | null>(null);
   const [shortAnswerInput, setShortAnswerInput] = useState("");
+  const [savedPracticeSets, setSavedPracticeSets] = useState<
+    BackendPracticeQuizSummary[]
+  >([]);
+  const [teacherPracticeSets, setTeacherPracticeSets] = useState<
+    BackendPracticeQuizSummary[]
+  >([]);
 
   const computeTiming = (count: number) => {
     const perQuestion = Math.max(30, Math.ceil((count * 45) / count));
@@ -106,6 +112,25 @@ export default function PracticeHub() {
     .map(([, label]) => label)
     .join(", ");
 
+  const loadSavedPracticeSets = useCallback(async () => {
+    setIsFetchingSaved(true);
+    const items = await fetchMyPracticeQuizzes();
+    setSavedPracticeSets(items);
+    setIsFetchingSaved(false);
+  }, []);
+
+  const loadPracticeLibrary = useCallback(async () => {
+    setIsFetchingLibrary(true);
+    const items = await fetchPracticeLibraryQuizzes();
+    setTeacherPracticeSets(items);
+    setIsFetchingLibrary(false);
+  }, []);
+
+  useEffect(() => {
+    void loadPracticeLibrary();
+    void loadSavedPracticeSets();
+  }, [loadSavedPracticeSets, loadPracticeLibrary]);
+
   const handleStartPractice = async () => {
     const count = Math.max(1, Math.min(15, Number(questionCount) || 5));
     setIsLoading(true);
@@ -123,28 +148,51 @@ export default function PracticeHub() {
     if (!response.questions.length) {
       setErrorText(
         response.error ||
-          `No practice was generated for ${subject}. Try the exact Grade ${studentProfile.grade} textbook topic.`,
+          `No practice was generated for ${subject}. Try a more specific Grade ${studentProfile.grade} textbook topic.`,
       );
       return;
     }
 
-    const newSet: Omit<PracticeSet, "id" | "createdAt" | "source"> = {
-      title: `${subject.toUpperCase()} personalized practice`,
-      subject,
-      topic: topic.trim() || subject,
-      questionTypes,
-      questionCount: response.questions.length,
-      performanceBand: studentProfile.performanceBand,
-      questions: response.questions,
-    };
+    if (!response.quizId) {
+      setErrorText("Quiz was not saved in backend. Please retry.");
+      return;
+    }
 
-    saveGeneratedPracticeSet(newSet);
     router.push({
       pathname: "../interactive-quiz",
       params: {
+        quizId: response.quizId,
         questions: JSON.stringify(response.questions),
       },
     });
+
+    void loadSavedPracticeSets();
+    void loadPracticeLibrary();
+  };
+
+  const openSavedPracticeSet = async (item: BackendPracticeQuizSummary) => {
+    try {
+      setErrorText("");
+      const detail = await fetchPracticeQuizDetail(item.id);
+      if (!detail.questions.length) {
+        setErrorText("This quiz has no questions yet.");
+        return;
+      }
+
+      router.push({
+        pathname: "../interactive-quiz",
+        params: {
+          quizId: detail.quizId,
+          questions: JSON.stringify(detail.questions),
+        },
+      });
+    } catch (error) {
+      setErrorText(
+        error instanceof Error
+          ? error.message
+          : "Failed to open saved practice quiz.",
+      );
+    }
   };
 
   const advanceQuestion = () => {
@@ -250,11 +298,11 @@ export default function PracticeHub() {
     setSession((prev) => (prev ? { ...prev, completionTracked: true } : prev));
   }, [session]);
 
-  const renderLibraryCard = (set: PracticeSet) => (
+  const renderLibraryCard = (set: BackendPracticeQuizSummary) => (
     <TouchableOpacity
       key={set.id}
       style={styles.libraryCard}
-      onPress={() => startSession(set)}
+      onPress={() => openSavedPracticeSet(set)}
     >
       <View style={styles.libraryHeader}>
         <Text style={styles.libraryTitle}>{set.title}</Text>
@@ -278,7 +326,7 @@ export default function PracticeHub() {
       </View>
       <Text style={styles.libraryMeta}>
         {set.subject.toUpperCase()} • {set.questionCount} questions •{" "}
-        {set.createdAt}
+        {set.createdAt || "Recently"}
       </Text>
     </TouchableOpacity>
   );
@@ -646,17 +694,33 @@ export default function PracticeHub() {
 
         <View style={styles.librarySection}>
           <Text style={styles.sectionTitle}>Teacher question bank</Text>
-          {teacherPracticeSets.map(renderLibraryCard)}
+          {isFetchingLibrary ? (
+            <View style={styles.emptyCard}>
+              <ActivityIndicator size="small" color={COLORS.primary} />
+              <Text style={styles.emptyText}>Loading teacher quizzes...</Text>
+            </View>
+          ) : teacherPracticeSets.length > 0 ? (
+            teacherPracticeSets.map(renderLibraryCard)
+          ) : (
+            <View style={styles.emptyCard}>
+              <Text style={styles.emptyText}>No teacher quizzes are available yet.</Text>
+            </View>
+          )}
         </View>
 
         <View style={styles.librarySection}>
           <Text style={styles.sectionTitle}>Saved personalized sets</Text>
-          {generatedPracticeSets.length > 0 ? (
-            generatedPracticeSets.map(renderLibraryCard)
+          {isFetchingSaved ? (
+            <View style={styles.emptyCard}>
+              <ActivityIndicator size="small" color={COLORS.primary} />
+              <Text style={styles.emptyText}>Loading saved quizzes...</Text>
+            </View>
+          ) : savedPracticeSets.length > 0 ? (
+            savedPracticeSets.map(renderLibraryCard)
           ) : (
             <View style={styles.emptyCard}>
               <Text style={styles.emptyText}>
-                No personalized sets yet. Generate your first set above.
+                No backend quizzes yet. Generate your first set above.
               </Text>
             </View>
           )}
