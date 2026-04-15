@@ -1,5 +1,5 @@
-import { Platform } from "react-native";
 import Constants from "expo-constants";
+import { Platform } from "react-native";
 import type { StudentProfile } from "../types/domain.types";
 
 export type UserRole = "STUDENT" | "TEACHER" | "ADMIN";
@@ -58,6 +58,9 @@ export type BackendStudentProfile = {
 	support_subjects?: string[];
 	strong_subjects?: string[];
 	diagnostic_completed?: boolean;
+	xp?: number;
+	streak?: number;
+	last_active?: string | null;
 };
 
 const extractHostFromExpo = () => {
@@ -314,6 +317,9 @@ export const mapBackendProfileToStudentProfile = (
 		typeof profile.diagnostic_completed === "boolean"
 			? profile.diagnostic_completed
 			: false,
+	xp: typeof profile.xp === "number" ? profile.xp : undefined,
+	streak: typeof profile.streak === "number" ? profile.streak : undefined,
+	lastActive: profile.last_active || null,
 });
 
 export const loginUser = async (email: string, password: string) => {
@@ -336,8 +342,8 @@ export const registerStudent = async (payload: StudentRegistrationPayload) => {
 	return data;
 };
 
-export const fetchStudentProfile = async (): Promise<BackendStudentProfile> => {
-	if (cachedStudentProfile) {
+export const fetchStudentProfile = async (options?: { forceRefresh?: boolean }): Promise<BackendStudentProfile> => {
+	if (cachedStudentProfile && !options?.forceRefresh) {
 		return cachedStudentProfile;
 	}
 

@@ -12,7 +12,7 @@ type QuizQuestion = {
 };
 
 export default function InteractiveQuizRoute() {
-  const params = useLocalSearchParams<{ questions?: string; quizId?: string }>();
+  const params = useLocalSearchParams<{ questions?: string; quizId?: string; subject?: string }>();
 
   let questions: QuizQuestion[] = [];
   const rawQuestions =
@@ -29,6 +29,7 @@ export default function InteractiveQuizRoute() {
   }
 
   const quizId = typeof params.quizId === "string" ? params.quizId : undefined;
+  const subject = typeof params.subject === "string" ? params.subject : undefined;
 
-  return <InteractiveQuizScreen route={{ params: { questions, quizId } }} />;
+  return <InteractiveQuizScreen route={{ params: { questions, quizId, subject } }} />;
 }

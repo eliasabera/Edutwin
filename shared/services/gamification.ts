@@ -1,5 +1,9 @@
+import Constants from "expo-constants";
+import { Platform } from "react-native";
 import { useSyncExternalStore } from "react";
-import type { SubjectName } from "../types/domain.types";
+import type { StudentProfile, SubjectName } from "../types/domain.types";
+import { getAuthToken } from "./auth-service";
+import { updateStudentProfile } from "../store/user-store";
 
 export type AchievementId =
   | "first_step"
@@ -36,6 +40,17 @@ type CompletionPayload = {
   totalQuestions: number;
   subject: SubjectName;
   source: "teacher" | "ai";
+};
+
+type TwinProgressPayload = {
+  xp_delta?: number;
+  subject?: SubjectName;
+  score?: number;
+  totalQuestions?: number;
+  mastery_percentage?: number;
+  performance_band?: "support" | "medium" | "top" | "low";
+  support_subjects?: SubjectName[];
+  strong_subjects?: SubjectName[];
 };
 
 const buildAchievement = (
@@ -135,6 +150,104 @@ const updateState = (
   emitChange();
 };
 
+const extractHostFromExpo = () => {
+  const hostUri =
+    Constants.expoConfig?.hostUri ||
+    Constants.expoGoConfig?.developer?.tool ||
+    Constants.linkingUri;
+
+  if (!hostUri) return null;
+
+  const sanitized = String(hostUri)
+    .replace(/^https?:\/\//, "")
+    .replace(/^exp:\/\//, "")
+    .split("/")[0]
+    .trim();
+
+  if (!sanitized) return null;
+
+  return sanitized.includes(":")
+    ? sanitized.slice(0, sanitized.lastIndexOf(":"))
+    : sanitized;
+};
+
+const resolveApiHost = () => {
+  const explicitHost = process.env.EXPO_PUBLIC_AI_HOST?.trim();
+  if (explicitHost) return explicitHost;
+
+  const expoHost = extractHostFromExpo();
+  if (expoHost) return expoHost;
+
+  return Platform.OS === "android" ? "10.0.2.2" : "localhost";
+};
+
+const NODE_API_BASE_URL =
+  process.env.EXPO_PUBLIC_NODE_API_BASE_URL || `http://${resolveApiHost()}:5000`;
+
+export const syncTwinProgress = async (payload: TwinProgressPayload) => {
+  const token = getAuthToken();
+  if (!token) return null;
+
+  try {
+    const response = await fetch(`${NODE_API_BASE_URL}/api/gamification/me/progress`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+        "x-auth-token": token,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const body = await response.json();
+    const twinProfile = body?.data;
+    if (twinProfile && typeof twinProfile === "object") {
+      const updates: Partial<StudentProfile> = {};
+
+      if (typeof twinProfile.mastery_percentage === "number") {
+        updates.masteryScore = twinProfile.mastery_percentage;
+      }
+      if (twinProfile.performance_band === "top") {
+        updates.performanceBand = "top";
+      } else if (
+        twinProfile.performance_band === "support" ||
+        twinProfile.performance_band === "low"
+      ) {
+        updates.performanceBand = "support";
+      } else if (twinProfile.performance_band === "medium") {
+        updates.performanceBand = "medium";
+      }
+      if (Array.isArray(twinProfile.support_subjects)) {
+        updates.supportSubjects = twinProfile.support_subjects;
+      }
+      if (Array.isArray(twinProfile.strong_subjects)) {
+        updates.strongSubjects = twinProfile.strong_subjects;
+      }
+      if (typeof twinProfile.xp === "number") {
+        updates.xp = twinProfile.xp;
+      }
+      if (typeof twinProfile.streak === "number") {
+        updates.streak = twinProfile.streak;
+      }
+      if (typeof twinProfile.last_active === "string") {
+        updates.lastActive = twinProfile.last_active;
+      } else if (twinProfile.last_active === null) {
+        updates.lastActive = null;
+      }
+
+      updateStudentProfile(updates);
+    }
+
+    return twinProfile || null;
+  } catch {
+    return null;
+  }
+};
+
 export const getGamificationState = () => gamificationState;
 
 export const recordPracticeCompletion = ({
@@ -194,6 +307,13 @@ export const recordPracticeCompletion = ({
       lastEventLabel: `${subject} ${source === "teacher" ? "teacher quiz" : "AI practice"} completed with ${completionPercent}% accuracy`,
       achievements,
     };
+  });
+
+  void syncTwinProgress({
+    xp_delta: Math.max(3, completionPercent >= 100 ? 10 : Math.round(completionPercent / 10) + 2),
+    subject,
+    score,
+    totalQuestions,
   });
 };
 

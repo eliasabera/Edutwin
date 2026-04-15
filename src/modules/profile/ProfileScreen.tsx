@@ -1,7 +1,7 @@
 import {
   fetchStudentProfile,
-  getCachedStudentProfile,
   mapBackendProfileToStudentProfile,
+  setCachedStudentProfile,
 } from "@/shared/services/auth-service";
 import {
   getStudentProfile,
@@ -20,18 +20,12 @@ export default function ProfileScreen() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncError, setSyncError] = useState("");
   const [activeCard, setActiveCard] = useState<"student" | "twin">("student");
-  const cachedBackendProfile = getCachedStudentProfile();
 
   useFocusEffect(
     useCallback(() => {
       let isMounted = true;
 
       const syncProfile = async () => {
-        if (cachedBackendProfile) {
-          updateStudentProfile(mapBackendProfileToStudentProfile(cachedBackendProfile));
-          return;
-        }
-
         if (isMounted) {
           setIsSyncing(true);
           setSyncError("");
@@ -39,8 +33,10 @@ export default function ProfileScreen() {
 
         try {
           console.log("Profile sync: fetching from backend...");
-          const profile = await fetchStudentProfile();
+          const profile = await fetchStudentProfile({ forceRefresh: true });
           if (!isMounted) return;
+
+          setCachedStudentProfile(profile);
 
           const currentProfile = getStudentProfile();
 
@@ -104,11 +100,6 @@ export default function ProfileScreen() {
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase() || "")
     .join("");
-  const levelText = {
-    support: "Needs guided support",
-    medium: "On-track learner",
-    top: "Advanced performer",
-  }[studentProfile.performanceBand];
 
   return (
     <View style={styles.screen}>
@@ -165,16 +156,9 @@ export default function ProfileScreen() {
               <Text style={styles.title}>
                 {studentProfile.fullName || "Student"}
               </Text>
-              <Text style={styles.subtitle}>Backend profile synced</Text>
             </View>
           </View>
 
-          <View style={styles.heroMetaPill}>
-            <Ionicons name="trending-up-outline" size={14} color="#0B5FFF" />
-            <Text style={styles.heroMetaText}>
-              {studentProfile.masteryScore}% mastery • {levelText}
-            </Text>
-          </View>
         </View>
 
         <View style={styles.sectionCard}>
@@ -255,11 +239,13 @@ export default function ProfileScreen() {
               </View>
               <View style={styles.infoRow}>
                 <Text style={styles.infoLabel}>Learning Level</Text>
-                <Text style={styles.infoValue}>{levelText}</Text>
-              </View>
-              <View style={styles.infoRowLast}>
-                <Text style={styles.infoLabel}>Mastery</Text>
-                <Text style={styles.infoValue}>{studentProfile.masteryScore}%</Text>
+                <Text style={styles.infoValue}>
+                  {studentProfile.performanceBand === "support"
+                    ? "Needs guided support"
+                    : studentProfile.performanceBand === "top"
+                      ? "Advanced performer"
+                      : "On-track learner"}
+                </Text>
               </View>
             </>
           ) : (

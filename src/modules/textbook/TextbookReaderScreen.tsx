@@ -1,5 +1,20 @@
-import React from "react";
-import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import Constants from "expo-constants";
+import { fetchTextbookSelectionAsk } from "@/shared/services/ai-service";
+import { useStudentProfile } from "@/shared/store/user-store";
+import { Ionicons } from "@expo/vector-icons";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import {
+  ActivityIndicator,
+  Animated,
+  Easing,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { WebView } from "react-native-webview";
 
@@ -12,14 +27,260 @@ type TextbookReaderScreenProps = {
   lesson?: ReaderLesson;
 };
 
+type LearningResource = {
+  id: string;
+  chapter: string;
+  topic: string;
+  title: string;
+  type: "canvas" | "ar";
+  url: string;
+};
+
+const PHYSICS_UNIT1_RESOURCES: LearningResource[] = [
+  {
+    id: "ch1-newton-canvas",
+    chapter: "Chapter 1",
+    topic: "Definition and Nature of Physics",
+    title: "Newton Canvas Model",
+    type: "canvas",
+    url: "https://chemistry3d-view-for-final-year-project-1.onrender.com/physics/chapter1/Definition%20and%20Nature%20of%20Physics.html?model=newton",
+  },
+  {
+    id: "ch1-faraday-canvas",
+    chapter: "Chapter 1",
+    topic: "Definition and Nature of Physics",
+    title: "Faraday Canvas Model",
+    type: "canvas",
+    url: "https://chemistry3d-view-for-final-year-project-1.onrender.com/physics/chapter1/Definition%20and%20Nature%20of%20Physics.html?model=faraday",
+  },
+  {
+    id: "ch1-figure3-canvas",
+    chapter: "Chapter 1",
+    topic: "Definition and Nature of Physics",
+    title: "Figure 3 Canvas Model",
+    type: "canvas",
+    url: "https://chemistry3d-view-for-final-year-project-1.onrender.com/physics/chapter1/figur-3.html",
+  },
+  {
+    id: "ch1-newton-ar",
+    chapter: "Chapter 1",
+    topic: "Definition and Nature of Physics",
+    title: "Newton AR Model",
+    type: "ar",
+    url: "https://chemistry3d-view-for-final-year-project-1.onrender.com/physics/chapter1/Definition%20and%20Nature%20of%20Physics.html?model=newton",
+  },
+  {
+    id: "ch1-faraday-ar",
+    chapter: "Chapter 1",
+    topic: "Definition and Nature of Physics",
+    title: "Faraday AR Model",
+    type: "ar",
+    url: "https://chemistry3d-view-for-final-year-project-1.onrender.com/physics/chapter1/Definition%20and%20Nature%20of%20Physics.html?model=faraday",
+  },
+];
+
+const HIDE_PDFJS_UI_SCRIPT = `
+  (function() {
+    var lastSentSelection = '';
+
+    var hide = function(selector) {
+      var node = document.querySelector(selector);
+      if (node) {
+        node.style.display = 'none';
+      }
+    };
+
+    var apply = function() {
+      hide('#toolbarContainer');
+      hide('#sidebarContainer');
+      hide('#sidebarToggleButton');
+
+      var outer = document.getElementById('outerContainer');
+      if (outer) {
+        outer.classList.remove('sidebarOpen');
+      }
+
+      var viewer = document.getElementById('viewerContainer');
+      if (viewer) {
+        viewer.style.top = '0px';
+        viewer.style.left = '0px';
+      }
+    };
+
+    var emitSelection = function() {
+      try {
+        var selected = '';
+        if (window.getSelection) {
+          selected = String(window.getSelection().toString() || '').trim();
+        }
+        if (selected === lastSentSelection) {
+          return;
+        }
+        lastSentSelection = selected;
+        if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+          window.ReactNativeWebView.postMessage(JSON.stringify({
+            type: 'TEXT_SELECTION',
+            text: selected,
+          }));
+        }
+      } catch (e) {
+        // noop
+      }
+    };
+
+    apply();
+    setTimeout(apply, 300);
+    setTimeout(apply, 1000);
+
+    document.addEventListener('selectionchange', function() {
+      setTimeout(emitSelection, 120);
+    });
+    document.addEventListener('mouseup', function() {
+      setTimeout(emitSelection, 120);
+    });
+    document.addEventListener('touchend', function() {
+      setTimeout(emitSelection, 180);
+    });
+    setInterval(emitSelection, 600);
+  })();
+  true;
+`;
+
 export default function TextbookReaderScreen({
   lesson,
 }: TextbookReaderScreenProps) {
   const insets = useSafeAreaInsets();
+  const studentProfile = useStudentProfile();
   const textbookUrl = lesson?.textbookUrl?.trim();
-  const viewerUrl = textbookUrl
-    ? `https://docs.google.com/gview?embedded=1&url=${encodeURIComponent(textbookUrl)}`
-    : "";
+  const viewerUrl = textbookUrl ? textbookUrl : "";
+  const [showResourceModal, setShowResourceModal] = useState(false);
+  const [activeResource, setActiveResource] = useState<LearningResource | null>(null);
+  const [chapterFilter, setChapterFilter] = useState("All");
+  const [topicFilter, setTopicFilter] = useState("All");
+  const [selectedText, setSelectedText] = useState("");
+  const [showAskAiModal, setShowAskAiModal] = useState(false);
+  const [selectionQuestion, setSelectionQuestion] = useState("");
+  const [selectionAnswer, setSelectionAnswer] = useState("");
+  const [isAskingSelection, setIsAskingSelection] = useState(false);
+  const triggerScale = useRef(new Animated.Value(1)).current;
+
+  const subjectName = useMemo(() => {
+    const lowered = (lesson?.subject || "").toLowerCase();
+    if (lowered === "biology" || lowered === "chemistry" || lowered === "physics" || lowered === "math") {
+      return lowered;
+    }
+    return "physics";
+  }, [lesson?.subject]);
+
+  const resources = useMemo(() => {
+    if (subjectName !== "physics") {
+      return [];
+    }
+    return PHYSICS_UNIT1_RESOURCES;
+  }, [subjectName]);
+
+  const chapterOptions = useMemo(
+    () => ["All", ...Array.from(new Set(resources.map((item) => item.chapter)))],
+    [resources],
+  );
+
+  const topicOptions = useMemo(() => {
+    const base =
+      chapterFilter === "All"
+        ? resources
+        : resources.filter((item) => item.chapter === chapterFilter);
+    return ["All", ...Array.from(new Set(base.map((item) => item.topic)))];
+  }, [chapterFilter, resources]);
+
+  const filteredResources = useMemo(() => {
+    return resources.filter((item) => {
+      const chapterMatch = chapterFilter === "All" || item.chapter === chapterFilter;
+      const topicMatch = topicFilter === "All" || item.topic === topicFilter;
+      return chapterMatch && topicMatch;
+    });
+  }, [chapterFilter, resources, topicFilter]);
+
+  const showResourceButton = Boolean(textbookUrl) && resources.length > 0;
+  const requestSubject =
+    subjectName === "biology" ||
+    subjectName === "chemistry" ||
+    subjectName === "physics" ||
+    subjectName === "math"
+      ? subjectName
+      : "physics";
+  const requestGrade = String(studentProfile.grade || "9").trim() || "9";
+
+  const askFromSelection = async () => {
+    const normalizedSelection = selectedText.trim();
+    const normalizedQuestion = selectionQuestion.trim();
+    if (!normalizedSelection || !normalizedQuestion) {
+      return;
+    }
+
+    setIsAskingSelection(true);
+    setSelectionAnswer("");
+
+    try {
+      const response = await fetchTextbookSelectionAsk({
+        subject: requestSubject,
+        grade: requestGrade,
+        chapter: "1",
+        unit: "Unit1",
+        question: normalizedQuestion,
+        selected_text: normalizedSelection,
+        support_subjects: Array.isArray(studentProfile.supportSubjects)
+          ? studentProfile.supportSubjects
+          : [],
+        strong_subjects: Array.isArray(studentProfile.strongSubjects)
+          ? studentProfile.strongSubjects
+          : [],
+        mastery_score:
+          typeof studentProfile.masteryScore === "number"
+            ? studentProfile.masteryScore
+            : null,
+        performance_band:
+          typeof studentProfile.performanceBand === "string" &&
+          studentProfile.performanceBand.trim()
+            ? studentProfile.performanceBand
+            : "unknown",
+      });
+      setSelectionAnswer(response.response || "No answer generated.");
+    } catch {
+      setSelectionAnswer("I could not process this selection right now. Please try again.");
+    } finally {
+      setIsAskingSelection(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!showResourceButton) {
+      triggerScale.stopAnimation();
+      triggerScale.setValue(1);
+      return;
+    }
+
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(triggerScale, {
+          toValue: 1.08,
+          duration: 500,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(triggerScale, {
+          toValue: 1,
+          duration: 500,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+
+    pulse.start();
+    return () => {
+      pulse.stop();
+    };
+  }, [showResourceButton, triggerScale]);
 
   if (!textbookUrl) {
     return (
@@ -31,12 +292,29 @@ export default function TextbookReaderScreen({
   }
 
   return (
-    <View style={styles.screen}>
+    <View style={styles.screen} pointerEvents="box-none">
       <WebView
-        source={{ uri: viewerUrl }}
+        source={{ uri: `https://mozilla.github.io/pdf.js/web/viewer.html?file=${encodeURIComponent(viewerUrl)}` }}
         style={styles.webView}
         originWhitelist={["*"]}
         startInLoadingState
+        injectedJavaScript={HIDE_PDFJS_UI_SCRIPT}
+        onMessage={(event) => {
+          try {
+            const parsed = JSON.parse(event.nativeEvent.data || "{}");
+            if (parsed?.type !== "TEXT_SELECTION") {
+              return;
+            }
+            const nextText =
+              typeof parsed?.text === "string" ? parsed.text.trim() : "";
+            setSelectedText(nextText);
+            if (!nextText) {
+              setShowAskAiModal(false);
+            }
+          } catch {
+            // ignore malformed bridge messages
+          }
+        }}
         renderLoading={() => (
           <View style={styles.loaderWrap}>
             <ActivityIndicator size="small" color="#0B5FFF" />
@@ -44,6 +322,238 @@ export default function TextbookReaderScreen({
           </View>
         )}
       />
+
+      {showResourceButton ? (
+        <View style={[styles.bubbleWrap, { top: insets.top + 10 }]} pointerEvents="box-none">
+          <Animated.View style={{ transform: [{ scale: triggerScale }] }}>
+            <Pressable
+              style={({ pressed }) => [styles.circleTrigger, pressed && styles.circleTriggerPressed]}
+              onPress={() => {
+                setShowResourceModal(true);
+              }}
+            >
+              <Ionicons name="sparkles" size={18} color="#FFFFFF" />
+            </Pressable>
+          </Animated.View>
+        </View>
+      ) : null}
+
+      {selectedText ? (
+        <View style={[styles.selectionAskWrap, { top: insets.top + 62 }]} pointerEvents="box-none">
+          <Pressable
+            style={({ pressed }) => [styles.selectionAskButton, pressed && styles.selectionAskButtonPressed]}
+            onPress={() => setShowAskAiModal(true)}
+          >
+            <Ionicons name="chatbubble-ellipses-outline" size={16} color="#FFFFFF" />
+            <Text style={styles.selectionAskText}>Ask AI</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
+      <Modal
+        visible={showResourceModal}
+        animationType="slide"
+        transparent
+        onRequestClose={() => {
+          if (activeResource) {
+            setActiveResource(null);
+            return;
+          }
+          setShowResourceModal(false);
+        }}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modalCard, { paddingTop: insets.top + 8 }]}> 
+            <View style={styles.modalHeader}>
+              {activeResource ? (
+                <Pressable
+                  style={styles.inlineBackButton}
+                  onPress={() => setActiveResource(null)}
+                >
+                  <Ionicons name="chevron-back" size={18} color="#0B5FFF" />
+                  <Text style={styles.inlineBackText}>Back to list</Text>
+                </Pressable>
+              ) : (
+                <Text style={styles.modalTitle}>Canvas and AR resources</Text>
+              )}
+
+              <Pressable
+                onPress={() => {
+                  setShowResourceModal(false);
+                  setActiveResource(null);
+                }}
+                style={styles.modalCloseButton}
+              >
+                <Ionicons name="close" size={20} color="#1A202C" />
+              </Pressable>
+            </View>
+
+            {activeResource ? (
+              <WebView
+                source={{ uri: activeResource.url }}
+                style={styles.modalWebView}
+                originWhitelist={["*"]}
+                startInLoadingState
+                renderLoading={() => (
+                  <View style={styles.loaderWrap}>
+                    <ActivityIndicator size="small" color="#0B5FFF" />
+                    <Text style={styles.loaderText}>Opening canvas model...</Text>
+                  </View>
+                )}
+              />
+            ) : (
+              <ScrollView contentContainerStyle={styles.canvasChooserWrap}>
+                <Text style={styles.canvasChooserTitle}>Filter learning resources</Text>
+                <Text style={styles.canvasChooserHint}>
+                  Pick chapter and topic, then open Canvas or AR without leaving the textbook screen.
+                </Text>
+
+                <Text style={styles.filterLabel}>Chapter</Text>
+                <View style={styles.filterRow}>
+                  {chapterOptions.map((option) => (
+                    <Pressable
+                      key={option}
+                      onPress={() => {
+                        setChapterFilter(option);
+                        setTopicFilter("All");
+                      }}
+                      style={[
+                        styles.filterChip,
+                        chapterFilter === option && styles.filterChipActive,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.filterChipText,
+                          chapterFilter === option && styles.filterChipTextActive,
+                        ]}
+                      >
+                        {option}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+
+                <Text style={styles.filterLabel}>Topic</Text>
+                <View style={styles.filterRow}>
+                  {topicOptions.map((option) => (
+                    <Pressable
+                      key={option}
+                      onPress={() => setTopicFilter(option)}
+                      style={[
+                        styles.filterChip,
+                        topicFilter === option && styles.filterChipActive,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.filterChipText,
+                          topicFilter === option && styles.filterChipTextActive,
+                        ]}
+                      >
+                        {option}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+
+                {filteredResources.length > 0 ? (
+                  filteredResources.map((item) => (
+                    <Pressable
+                      key={item.id}
+                      style={styles.canvasChoiceCard}
+                      onPress={() => setActiveResource(item)}
+                    >
+                      <View style={styles.canvasChoiceLeft}>
+                        <Ionicons
+                          name={item.type === "ar" ? "scan-outline" : "cube-outline"}
+                          size={18}
+                          color="#0B5FFF"
+                        />
+                        <View>
+                          <Text style={styles.canvasChoiceTitle}>{item.title}</Text>
+                          <Text style={styles.canvasChoiceSubtitle}>
+                            {item.chapter} • {item.topic} • {item.type.toUpperCase()}
+                          </Text>
+                        </View>
+                      </View>
+                      <Ionicons name="chevron-forward" size={18} color="#0B5FFF" />
+                    </Pressable>
+                  ))
+                ) : (
+                  <View style={styles.emptyFilterState}>
+                    <Text style={styles.emptyFilterText}>No models match this filter.</Text>
+                  </View>
+                )}
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={showAskAiModal}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setShowAskAiModal(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.askModalCard, { paddingTop: insets.top + 8 }]}> 
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Ask AI about highlighted text</Text>
+              <Pressable
+                onPress={() => setShowAskAiModal(false)}
+                style={styles.modalCloseButton}
+              >
+                <Ionicons name="close" size={20} color="#1A202C" />
+              </Pressable>
+            </View>
+
+            <ScrollView contentContainerStyle={styles.askModalContent}>
+              <Text style={styles.askLabel}>Selected text</Text>
+              <View style={styles.selectionPreviewCard}>
+                <Text style={styles.selectionPreviewText} numberOfLines={7}>
+                  {selectedText || "Highlight a sentence from the textbook first."}
+                </Text>
+              </View>
+
+              <Text style={styles.askLabel}>Your question</Text>
+              <TextInput
+                value={selectionQuestion}
+                onChangeText={setSelectionQuestion}
+                placeholder="Ask anything about the highlighted text..."
+                placeholderTextColor="#7E8EA8"
+                multiline
+                style={styles.askInput}
+              />
+
+              <Pressable
+                onPress={() => {
+                  void askFromSelection();
+                }}
+                disabled={!selectedText.trim() || !selectionQuestion.trim() || isAskingSelection}
+                style={({ pressed }) => [
+                  styles.askSubmitButton,
+                  (!selectedText.trim() || !selectionQuestion.trim() || isAskingSelection) &&
+                    styles.askSubmitButtonDisabled,
+                  pressed && styles.askSubmitButtonPressed,
+                ]}
+              >
+                <Text style={styles.askSubmitText}>
+                  {isAskingSelection ? "Thinking..." : "Ask AI"}
+                </Text>
+              </Pressable>
+
+              {selectionAnswer ? (
+                <View style={styles.answerCard}>
+                  <Text style={styles.askLabel}>AI answer</Text>
+                  <Text style={styles.answerText}>{selectionAnswer}</Text>
+                </View>
+              ) : null}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -56,6 +566,28 @@ const styles = StyleSheet.create({
   webView: {
     flex: 1,
     backgroundColor: "#FFFFFF",
+  },
+  bubbleWrap: {
+    position: "absolute",
+    right: 14,
+    zIndex: 99,
+    elevation: 99,
+  },
+  circleTrigger: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#0B5FFF",
+    shadowColor: "#0E234E",
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 6,
+  },
+  circleTriggerPressed: {
+    transform: [{ scale: 0.96 }],
   },
   loaderWrap: {
     flex: 1,
@@ -88,5 +620,244 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "600",
     textAlign: "center",
+  },
+  canvasChooserWrap: {
+    padding: 18,
+    gap: 12,
+  },
+  canvasChooserTitle: {
+    color: "#102443",
+    fontSize: 18,
+    fontWeight: "800",
+  },
+  canvasChooserHint: {
+    color: "#5A6C87",
+    fontSize: 13,
+    fontWeight: "600",
+    lineHeight: 18,
+  },
+  canvasChoiceCard: {
+    borderWidth: 1,
+    borderColor: "#C8DCF9",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  canvasChoiceLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  canvasChoiceTitle: {
+    color: "#102443",
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  canvasChoiceSubtitle: {
+    marginTop: 2,
+    color: "#4E6284",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  filterLabel: {
+    marginTop: 4,
+    color: "#27446E",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  filterRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: 2,
+  },
+  filterChip: {
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#C8DCF9",
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  filterChipActive: {
+    borderColor: "#0B5FFF",
+    backgroundColor: "#E7F0FF",
+  },
+  filterChipText: {
+    color: "#4E6284",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  filterChipTextActive: {
+    color: "#0B5FFF",
+  },
+  emptyFilterState: {
+    borderWidth: 1,
+    borderColor: "#D4E3FA",
+    borderRadius: 12,
+    padding: 12,
+    backgroundColor: "#F7FAFF",
+  },
+  emptyFilterText: {
+    color: "#5A6C87",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(3, 10, 20, 0.5)",
+    justifyContent: "flex-end",
+  },
+  modalCard: {
+    height: "88%",
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    backgroundColor: "#FFFFFF",
+    overflow: "hidden",
+  },
+  askModalCard: {
+    height: "86%",
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    backgroundColor: "#FFFFFF",
+    overflow: "hidden",
+  },
+  modalHeader: {
+    height: 52,
+    paddingHorizontal: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderBottomWidth: 1,
+    borderBottomColor: "#E3ECF8",
+  },
+  modalTitle: {
+    color: "#102443",
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  inlineBackButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+  },
+  inlineBackText: {
+    color: "#0B5FFF",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  modalCloseButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#EEF4FD",
+  },
+  modalWebView: {
+    flex: 1,
+    backgroundColor: "#FFFFFF",
+  },
+  selectionAskWrap: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    alignItems: "center",
+    zIndex: 100,
+    elevation: 100,
+  },
+  selectionAskButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#0B5FFF",
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    shadowColor: "#0E234E",
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 6,
+  },
+  selectionAskButtonPressed: {
+    opacity: 0.85,
+  },
+  selectionAskText: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  askModalContent: {
+    padding: 16,
+    gap: 10,
+  },
+  askLabel: {
+    color: "#27446E",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  selectionPreviewCard: {
+    borderWidth: 1,
+    borderColor: "#C8DCF9",
+    borderRadius: 12,
+    backgroundColor: "#F8FBFF",
+    padding: 12,
+  },
+  selectionPreviewText: {
+    color: "#2A3E60",
+    fontSize: 13,
+    fontWeight: "600",
+    lineHeight: 19,
+  },
+  askInput: {
+    minHeight: 96,
+    borderWidth: 1,
+    borderColor: "#C8DCF9",
+    borderRadius: 12,
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: "#1D2B45",
+    fontSize: 14,
+    fontWeight: "600",
+    textAlignVertical: "top",
+  },
+  askSubmitButton: {
+    marginTop: 4,
+    borderRadius: 10,
+    backgroundColor: "#0B5FFF",
+    paddingVertical: 10,
+    alignItems: "center",
+  },
+  askSubmitButtonDisabled: {
+    backgroundColor: "#9CB9F2",
+  },
+  askSubmitButtonPressed: {
+    opacity: 0.86,
+  },
+  askSubmitText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  answerCard: {
+    marginTop: 6,
+    borderWidth: 1,
+    borderColor: "#C8DCF9",
+    borderRadius: 12,
+    backgroundColor: "#F8FBFF",
+    padding: 12,
+    gap: 6,
+  },
+  answerText: {
+    color: "#1D2B45",
+    fontSize: 13,
+    fontWeight: "600",
+    lineHeight: 19,
   },
 });

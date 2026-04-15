@@ -50,6 +50,19 @@ const QUESTION_TYPES: Array<[PracticeQuestionType, string]> = [
   ["short", "Short answer"],
 ];
 
+const formatDisplayDate = (value: string) => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value || "Recently";
+  }
+
+  return new Intl.DateTimeFormat([], {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(date);
+};
+
 export default function PracticeHub() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -162,6 +175,7 @@ export default function PracticeHub() {
       pathname: "../interactive-quiz",
       params: {
         quizId: response.quizId,
+        subject,
         questions: JSON.stringify(response.questions),
       },
     });
@@ -183,6 +197,7 @@ export default function PracticeHub() {
         pathname: "../interactive-quiz",
         params: {
           quizId: detail.quizId,
+          subject: detail.subject || item.subject,
           questions: JSON.stringify(detail.questions),
         },
       });
@@ -326,7 +341,7 @@ export default function PracticeHub() {
       </View>
       <Text style={styles.libraryMeta}>
         {set.subject.toUpperCase()} • {set.questionCount} questions •{" "}
-        {set.createdAt || "Recently"}
+        {formatDisplayDate(set.createdAt)}
       </Text>
     </TouchableOpacity>
   );

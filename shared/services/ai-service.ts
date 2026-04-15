@@ -3,6 +3,7 @@ import { Platform } from "react-native";
 import { getStudentProfile } from "../store/user-store";
 import type { SubjectName } from "../types/domain.types";
 import { getAuthToken } from "./auth-service";
+import { syncTwinProgress } from "./gamification";
 
 export type ChatHistoryItem = {
   role: "user" | "assistant";
@@ -61,6 +62,7 @@ const PYTHON_API_BASE_URL =
   process.env.EXPO_PUBLIC_PYTHON_API_BASE_URL || `http://${API_HOST}:8000`;
 const CHAT_API_URL = `${NODE_API_BASE_URL}/api/ai/chat`;
 const CHAT_STREAM_API_URL = `${NODE_API_BASE_URL}/api/ai/chat/stream`;
+const TEXTBOOK_ASSIST_URL = `${NODE_API_BASE_URL}/api/ai/textbook/assist`;
 const CHAT_HISTORY_URL = (sessionId: string) =>
   `${NODE_API_BASE_URL}/api/ai/sessions/${sessionId}/messages`;
 const CHAT_HISTORY_CANDIDATES = [
@@ -74,6 +76,15 @@ const GRADE_URL = `${PYTHON_API_BASE_URL}/grade`;
 const QUIZ_GENERATE_URL = `${NODE_API_BASE_URL}/api/quizzes/generate/ai-practice`;
 const QUIZ_SUBMIT_URL = `${NODE_API_BASE_URL}/api/quizzes/submit`;
 const LIQUID_FALLBACK_BASE_URL = `http://${API_HOST}:8001`;
+const PYTHON_TEXTBOOK_ASSIST_URL = `${PYTHON_API_BASE_URL}/textbook/assist`;
+const PYTHON_TEXTBOOK_ASSIST_8001_URL = `http://${API_HOST}:8001/textbook/assist`;
+const PYTHON_TEXTBOOK_ASSIST_8011_URL = `http://${API_HOST}:8011/textbook/assist`;
+const TEXTBOOK_SELECTION_ASK_URL = `${NODE_API_BASE_URL}/api/ai/textbook/selection-ask`;
+const PYTHON_TEXTBOOK_SELECTION_ASK_URL = `${PYTHON_API_BASE_URL}/textbook/selection-ask`;
+const PYTHON_TEXTBOOK_SELECTION_ASK_8001_URL =
+  `http://${API_HOST}:8001/textbook/selection-ask`;
+const PYTHON_TEXTBOOK_SELECTION_ASK_8011_URL =
+  `http://${API_HOST}:8011/textbook/selection-ask`;
 
 const buildAuthHeaders = (): Record<string, string> => {
   const token = getAuthToken();
@@ -219,6 +230,9 @@ const buildStudentProfilePayload = () => {
     twin_name: profile.twinName,
     support_subjects: profile.supportSubjects,
     strong_subjects: profile.strongSubjects,
+    xp: profile.xp,
+    streak: profile.streak,
+    last_active: profile.lastActive,
   };
 };
 
@@ -340,12 +354,20 @@ export const generateAIResponse = async (
           if (isIntegrationFallbackText(data.response)) {
             continue;
           }
+          void syncTwinProgress({
+            xp_delta: 2,
+            subject,
+          });
           return normalizeTutorResponse(data.response);
         }
         if (typeof data?.message === "string") {
           if (isIntegrationFallbackText(data.message)) {
             continue;
           }
+          void syncTwinProgress({
+            xp_delta: 2,
+            subject,
+          });
           return normalizeTutorResponse(data.message);
         }
       } catch (error) {
@@ -438,6 +460,11 @@ export const generateAIResponseStream = async (
 
         const normalized = normalizeTutorResponse(trimmed);
 
+		void syncTwinProgress({
+			xp_delta: 2,
+			subject,
+		});
+
         if (isNodeStreamEndpoint) {
           onChunk(normalized);
         }
@@ -502,6 +529,46 @@ export type GradePayload = {
 export type GradeResponse = {
   is_correct: boolean;
   feedback: string;
+};
+
+export type TextbookAssistPayload = {
+  subject: SubjectName;
+  grade: string;
+  chapter: string;
+  current_topic?: string;
+  current_passage?: string;
+  current_page?: number;
+};
+
+export type TextbookAssistResponse = {
+  show_canvas_suggestion: boolean;
+  topic: string | null;
+  canvas_link: string | null;
+  suggestion_text: string | null;
+  message?: string;
+  current_page?: number | null;
+};
+
+export type TextbookSelectionAskPayload = {
+  subject: SubjectName;
+  grade: string;
+  chapter: string;
+  question: string;
+  selected_text: string;
+  unit?: string;
+  current_topic?: string;
+  current_page?: number;
+  support_subjects?: string[];
+  strong_subjects?: string[];
+  mastery_score?: number | null;
+  performance_band?: string | null;
+};
+
+export type TextbookSelectionAskResponse = {
+  response: string;
+  selected_text: string;
+  message?: string;
+  current_page?: number | null;
 };
 
 type SubmitPracticeAttemptPayload = {
@@ -666,6 +733,11 @@ export const generatePracticeQuestions = async (
       };
     }
 
+    void syncTwinProgress({
+		xp_delta: 1,
+		subject: payload.subject,
+	});
+
     return {
       questions,
       quizId,
@@ -806,7 +878,7 @@ export const fetchPracticeLibraryQuizzes = async (): Promise<BackendPracticeQuiz
 
 export const fetchPracticeQuizDetail = async (quizId: string) => {
   if (!quizId) {
-    return { quizId: "", questions: [] as PracticeQuestion[] };
+    return { quizId: "", subject: "", questions: [] as PracticeQuestion[] };
   }
 
   const response = await fetch(`${NODE_API_BASE_URL}/api/quizzes/${quizId}`, {
@@ -821,9 +893,13 @@ export const fetchPracticeQuizDetail = async (quizId: string) => {
   const body = await response.json();
   const data = body?.data || {};
   const questionItems = Array.isArray(data?.questions) ? data.questions : [];
+  const subject = String(
+    data?.subject || data?.quiz?.subject || data?.quiz?.subject_name || "",
+  );
 
   return {
     quizId,
+    subject,
     questions: questionItems
       .map(normalizePracticeQuestion)
       .filter(Boolean) as PracticeQuestion[],
@@ -921,4 +997,131 @@ export const fetchChatHistory = async (sessionId?: string) => {
   }
 
   return [] as PersistedChatMessage[];
+};
+
+export const fetchTextbookAssist = async (
+  payload: TextbookAssistPayload,
+): Promise<TextbookAssistResponse> => {
+  const endpointCandidates = unique([
+    TEXTBOOK_ASSIST_URL,
+    PYTHON_TEXTBOOK_ASSIST_URL,
+    PYTHON_TEXTBOOK_ASSIST_8001_URL,
+    PYTHON_TEXTBOOK_ASSIST_8011_URL,
+  ]);
+
+  let lastError: unknown = null;
+
+  for (const endpoint of endpointCandidates) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4500);
+
+    try {
+      const useNodeHeaders = endpoint === TEXTBOOK_ASSIST_URL;
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: useNodeHeaders
+          ? buildAuthHeaders()
+          : {
+              "Content-Type": "application/json",
+            },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        lastError = new Error(await readErrorMessage(response));
+        continue;
+      }
+
+      const data = await response.json();
+      return {
+        show_canvas_suggestion: Boolean(data?.show_canvas_suggestion),
+        topic: typeof data?.topic === "string" ? data.topic : null,
+        canvas_link: typeof data?.canvas_link === "string" ? data.canvas_link : null,
+        suggestion_text:
+          typeof data?.suggestion_text === "string" ? data.suggestion_text : null,
+        message: typeof data?.message === "string" ? data.message : undefined,
+        current_page:
+          typeof data?.current_page === "number" ? data.current_page : null,
+      };
+    } catch (error) {
+      lastError = error;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  console.warn("Textbook assist unavailable:", lastError);
+  return {
+    show_canvas_suggestion: false,
+    topic: null,
+    canvas_link: null,
+    suggestion_text: null,
+    message: "Interactive assist is temporarily unavailable.",
+    current_page: typeof payload.current_page === "number" ? payload.current_page : null,
+  };
+};
+
+export const fetchTextbookSelectionAsk = async (
+  payload: TextbookSelectionAskPayload,
+): Promise<TextbookSelectionAskResponse> => {
+  const endpointCandidates = unique([
+    PYTHON_TEXTBOOK_SELECTION_ASK_8011_URL,
+    PYTHON_TEXTBOOK_SELECTION_ASK_URL,
+    PYTHON_TEXTBOOK_SELECTION_ASK_8001_URL,
+    TEXTBOOK_SELECTION_ASK_URL,
+  ]);
+
+  let lastError: unknown = null;
+
+  for (const endpoint of endpointCandidates) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 12000);
+
+    try {
+      const useNodeHeaders = endpoint === TEXTBOOK_SELECTION_ASK_URL;
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: useNodeHeaders
+          ? buildAuthHeaders()
+          : {
+              "Content-Type": "application/json",
+            },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        lastError = new Error(await readErrorMessage(response));
+        continue;
+      }
+
+      const data = await response.json();
+      return {
+        response:
+          typeof data?.response === "string" && data.response.trim()
+            ? data.response.trim()
+            : "I could not generate an answer from that selection.",
+        selected_text:
+          typeof data?.selected_text === "string" && data.selected_text.trim()
+            ? data.selected_text.trim()
+            : payload.selected_text,
+        message: typeof data?.message === "string" ? data.message : undefined,
+        current_page:
+          typeof data?.current_page === "number" ? data.current_page : null,
+      };
+    } catch (error) {
+      lastError = error;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  console.warn("Textbook selection ask unavailable:", lastError);
+  return {
+    response: "I cannot reach the textbook AI service right now. Please try again.",
+    selected_text: payload.selected_text,
+    message: "Selection ask is temporarily unavailable.",
+    current_page: typeof payload.current_page === "number" ? payload.current_page : null,
+  };
 };

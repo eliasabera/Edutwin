@@ -3,12 +3,12 @@ import TextbookReaderScreen from "@/src/modules/textbook/TextbookReaderScreen";
 import { Ionicons } from "@expo/vector-icons";
 import React, { useMemo, useState } from "react";
 import {
-  Image,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
+    Image,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -41,6 +41,14 @@ const SUBJECT_BOOK_COVERS: Record<Subject, string> = {
 
 const DEFAULT_TEXTBOOK_URL =
   "https://vzqerbreduraaluicaxe.supabase.co/storage/v1/object/public/3d-models/G9-Biology-STB-2023-web.pdf";
+
+const SUBJECT_TEXTBOOK_URLS: Record<Subject, string> = {
+  Biology: DEFAULT_TEXTBOOK_URL,
+  Chemistry: DEFAULT_TEXTBOOK_URL,
+  Physics:
+    "https://vzqerbreduraaluicaxe.supabase.co/storage/v1/object/public/3d-models/G9-Physics-STB-2023-webUnit1.pdf",
+  Math: DEFAULT_TEXTBOOK_URL,
+};
 
 const SUBJECT_UNITS: Record<Subject, Unit[]> = {
   Biology: [
@@ -161,7 +169,7 @@ export default function TextbookScreen() {
   const handleSelectSubject = (subject: Subject) => {
     setActiveLesson({
       subject,
-      textbookUrl: DEFAULT_TEXTBOOK_URL,
+      textbookUrl: SUBJECT_TEXTBOOK_URLS[subject],
     });
   };
 
@@ -170,7 +178,7 @@ export default function TextbookScreen() {
       <View style={styles.readerHost}>
         <TextbookReaderScreen lesson={activeLesson} />
 
-        <View style={[styles.readerTopBar, { top: insets.top + 10 }]}>
+        <View pointerEvents="box-none" style={[styles.readerTopBar, { top: insets.top + 10 }]}> 
           <Pressable
             style={styles.readerBackButton}
             onPress={() => setActiveLesson(null)}
@@ -285,7 +293,8 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: 14,
     right: 14,
-    zIndex: 40,
+    zIndex: 120,
+    elevation: 120,
     flexDirection: "row",
     justifyContent: "flex-start",
     alignItems: "center",

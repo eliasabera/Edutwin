@@ -1,8 +1,14 @@
+import {
+  fetchStudentProfile,
+  mapBackendProfileToStudentProfile,
+  setCachedStudentProfile,
+} from "@/shared/services/auth-service";
 import { useGamification } from "@/shared/services/gamification";
-import { useStudentProfile } from "@/shared/store/user-store";
+import { getStudentProfile, updateStudentProfile, useStudentProfile } from "@/shared/store/user-store";
 import { Ionicons } from "@expo/vector-icons";
+import { useFocusEffect } from "@react-navigation/native";
 import { useRouter } from "expo-router";
-import React, { useEffect, useRef } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
     Animated,
     Pressable,
@@ -19,6 +25,79 @@ export default function HomeScreen() {
   const studentProfile = useStudentProfile();
   const gamification = useGamification();
   const thunderPulse = useRef(new Animated.Value(0)).current;
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  useFocusEffect(
+    useCallback(() => {
+      let isMounted = true;
+
+      const syncProfile = async () => {
+        if (isMounted) {
+          setIsSyncing(true);
+        }
+
+        try {
+          const latestProfile = await fetchStudentProfile({ forceRefresh: true });
+          if (!isMounted) return;
+
+          setCachedStudentProfile(latestProfile);
+
+          const currentProfile = getStudentProfile();
+          updateStudentProfile({
+            fullName: latestProfile.full_name || currentProfile.fullName,
+            grade: String(latestProfile.grade_level ?? latestProfile.grade ?? currentProfile.grade),
+            preferredLanguage: latestProfile.language === "om" ? "om" : "en",
+            masteryScore:
+              typeof latestProfile.mastery_score === "number"
+                ? latestProfile.mastery_score
+                : currentProfile.masteryScore,
+            performanceBand:
+              latestProfile.performance_band === "top"
+                ? "top"
+                : latestProfile.performance_band === "support" || latestProfile.performance_band === "low"
+                  ? "support"
+                  : latestProfile.performance_band === "medium"
+                    ? "medium"
+                    : currentProfile.performanceBand,
+            twinName: latestProfile.twin_name || currentProfile.twinName,
+            supportSubjects: Array.isArray(latestProfile.support_subjects)
+              ? latestProfile.support_subjects.filter((item) =>
+                  ["biology", "chemistry", "physics", "math"].includes(item),
+                ) as typeof currentProfile.supportSubjects
+              : currentProfile.supportSubjects,
+            strongSubjects: Array.isArray(latestProfile.strong_subjects)
+              ? latestProfile.strong_subjects.filter((item) =>
+                  ["biology", "chemistry", "physics", "math"].includes(item),
+                ) as typeof currentProfile.strongSubjects
+              : currentProfile.strongSubjects,
+            diagnosticCompleted:
+              typeof latestProfile.diagnostic_completed === "boolean"
+                ? latestProfile.diagnostic_completed
+                : currentProfile.diagnosticCompleted,
+            xp: typeof latestProfile.xp === "number" ? latestProfile.xp : currentProfile.xp,
+            streak:
+              typeof latestProfile.streak === "number" ? latestProfile.streak : currentProfile.streak,
+            lastActive:
+              typeof latestProfile.last_active === "string"
+                ? latestProfile.last_active
+                : currentProfile.lastActive,
+          });
+        } catch {
+          // Keep the last known profile when the backend is unavailable.
+        } finally {
+          if (isMounted) {
+            setIsSyncing(false);
+          }
+        }
+      };
+
+      void syncProfile();
+
+      return () => {
+        isMounted = false;
+      };
+    }, []),
+  );
 
   useEffect(() => {
     const loop = Animated.loop(
@@ -48,10 +127,15 @@ export default function HomeScreen() {
     Math.round((gamification.digitalTwinSignals / 8) * 100),
   );
   const totalXp =
-    gamification.totalPracticeCompleted * 25 +
-    gamification.teacherAssessmentsCompleted * 50 +
-    unlockedAchievements.length * 10;
+    typeof studentProfile.xp === "number"
+      ? studentProfile.xp
+      : gamification.totalPracticeCompleted * 25 +
+        gamification.teacherAssessmentsCompleted * 50 +
+        unlockedAchievements.length * 10;
+  const activeStreak = studentProfile.streak ?? gamification.currentStreak;
   const studentRank = Math.max(1, Math.floor(totalXp / 120) + 1);
+  const supportSubjects = studentProfile.supportSubjects.join(", ") || "None";
+  const strongSubjects = studentProfile.strongSubjects.join(", ") || "None";
 
   const drawerTiles = [
     {
@@ -66,7 +150,7 @@ export default function HomeScreen() {
       id: "streak",
       icon: "flame",
       label: "Current Streak",
-      value: `${gamification.currentStreak}`,
+      value: `${activeStreak}`,
       accent: "#FF9600",
       glow: "rgba(255, 150, 0, 0.2)",
     },
@@ -87,12 +171,20 @@ export default function HomeScreen() {
       glow: "rgba(255, 150, 0, 0.2)",
     },
     {
-      id: "teacher",
-      icon: "school",
-      label: "Teacher Signals",
-      value: `${gamification.teacherAssessmentsCompleted}`,
+      id: "support",
+      icon: "book-outline",
+      label: "Support",
+      value: supportSubjects,
       accent: "#0B5FFF",
       glow: "rgba(11, 95, 255, 0.18)",
+    },
+    {
+      id: "strong",
+      icon: "rocket-outline",
+      label: "Strong",
+      value: strongSubjects,
+      accent: "#FF9600",
+      glow: "rgba(255, 150, 0, 0.2)",
     },
   ] as const;
 
@@ -108,12 +200,17 @@ export default function HomeScreen() {
             <Ionicons name="podium-outline" size={14} color="#0B5FFF" />
             <Text style={styles.rankBadgeText}>Rank {studentRank}</Text>
           </View>
+          {isSyncing && (
+            <View style={styles.syncBadge}>
+              <Text style={styles.syncBadgeText}>Syncing</Text>
+            </View>
+          )}
         </View>
 
         <View style={styles.energyWrap}>
           <View style={styles.energyStatLeft}>
             <Ionicons name="flame" size={19} color="#FF9600" />
-            <Text style={styles.energyStatValue}>{gamification.currentStreak}</Text>
+            <Text style={styles.energyStatValue}>{activeStreak}</Text>
             <Text style={styles.energyStatLabel}>Streak</Text>
           </View>
 
@@ -288,6 +385,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "flex-end",
     paddingHorizontal: 6,
+    gap: 10,
   },
   rankBadge: {
     flexDirection: "row",
@@ -304,6 +402,19 @@ const styles = StyleSheet.create({
     color: "#0B5FFF",
     fontWeight: "800",
     fontSize: 12,
+  },
+  syncBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: "rgba(11, 95, 255, 0.1)",
+    borderWidth: 1,
+    borderColor: "rgba(11, 95, 255, 0.15)",
+  },
+  syncBadgeText: {
+    color: "#0B5FFF",
+    fontWeight: "700",
+    fontSize: 11,
   },
   energyWrap: {
     width: "100%",

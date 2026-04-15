@@ -14,4 +14,7 @@ export interface StudentProfile {
   supportSubjects: SubjectName[];
   strongSubjects: SubjectName[];
   diagnosticCompleted: boolean;
+  xp?: number;
+  streak?: number;
+  lastActive?: string | null;
 }

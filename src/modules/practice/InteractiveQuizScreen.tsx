@@ -4,6 +4,7 @@ import {
   gradePracticeAnswer,
   submitPracticeAttempt,
 } from "@/shared/services/ai-service";
+import { syncTwinProgress } from "@/shared/services/gamification";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
@@ -32,6 +33,7 @@ type Props = {
     params?: {
       questions?: QuizQuestion[];
       quizId?: string;
+      subject?: string;
     };
   };
 };
@@ -149,7 +151,9 @@ export default function InteractiveQuizScreen({ route }: Props) {
   const router = useRouter();
   const initialQuestions = route?.params?.questions || [];
   const quizId = route?.params?.quizId || "";
+  const initialSubject = route?.params?.subject || "";
   const [questions, setQuestions] = useState<QuizQuestion[]>(initialQuestions);
+  const [quizSubject, setQuizSubject] = useState(initialSubject);
   const [isHydrating, setIsHydrating] = useState(
     initialQuestions.length === 0 && !!quizId,
   );
@@ -196,6 +200,9 @@ export default function InteractiveQuizScreen({ route }: Props) {
         const detail = await fetchPracticeQuizDetail(quizId);
         if (!mounted) return;
         setQuestions((detail.questions || []) as QuizQuestion[]);
+        if (!quizSubject && detail.subject) {
+          setQuizSubject(detail.subject);
+        }
       } catch (error) {
         if (!mounted) return;
         setHydrateError(
@@ -331,10 +338,19 @@ export default function InteractiveQuizScreen({ route }: Props) {
           ? "Your attempt was saved to EduTwin backend."
           : "Attempt could not be saved to backend. Your score is still available locally.",
       );
+
+      if (quizSubject) {
+        void syncTwinProgress({
+          subject: quizSubject as "biology" | "chemistry" | "physics" | "math",
+          score: correctCount,
+          totalQuestions: questions.length,
+          xp_delta: Math.max(3, correctCount === questions.length ? 10 : Math.round((correctCount / Math.max(1, questions.length)) * 10) + 2),
+        });
+      }
     };
 
     void submitAttempt();
-  }, [isFinished, quizId, attemptSaved, isSavingAttempt, questions, answerByIndex]);
+  }, [isFinished, quizId, attemptSaved, isSavingAttempt, questions, answerByIndex, quizSubject, correctCount]);
 
   if (isHydrating) {
     return (
