@@ -57,6 +57,7 @@ export type BackendStudentProfile = {
 	twin_name?: string;
 	support_subjects?: string[];
 	strong_subjects?: string[];
+	subject_scores?: Record<string, { average?: number; attempts?: number; last_score?: number }>;
 	diagnostic_completed?: boolean;
 	xp?: number;
 	streak?: number;
@@ -164,6 +165,43 @@ const extractPayload = <TData>(body: unknown): TData | null => {
 	}
 
 	return body as TData;
+};
+
+const normalizeSubjectList = (items: unknown) => {
+	if (!Array.isArray(items)) return [] as string[];
+	return items
+		.map((item) => String(item || "").trim().toLowerCase())
+		.filter((item) => ["biology", "chemistry", "physics", "math"].includes(item));
+};
+
+const deriveSubjectsFromScores = (scores?: BackendStudentProfile["subject_scores"]) => {
+	const support = new Set<string>();
+	const strong = new Set<string>();
+
+	if (!scores || typeof scores !== "object") {
+		return { support: [], strong: [] };
+	}
+
+	for (const [subject, details] of Object.entries(scores)) {
+		const normalizedSubject = String(subject || "").trim().toLowerCase();
+		if (!["biology", "chemistry", "physics", "math"].includes(normalizedSubject)) {
+			continue;
+		}
+		const average = typeof details?.average === "number" ? details.average : null;
+		const attempts = typeof details?.attempts === "number" ? details.attempts : 0;
+		if (average === null || attempts < 1) {
+			continue;
+		}
+		if (average >= 80) {
+			strong.add(normalizedSubject);
+			support.delete(normalizedSubject);
+		} else if (average <= 55) {
+			support.add(normalizedSubject);
+			strong.delete(normalizedSubject);
+		}
+	}
+
+	return { support: Array.from(support), strong: Array.from(strong) };
 };
 
 const request = async <TData>(
@@ -307,12 +345,14 @@ export const mapBackendProfileToStudentProfile = (
 				: "medium",
 	preferredLanguage: profile.language === "om" ? "om" : "en",
 	twinName: profile.twin_name?.trim() || "EduTwin",
-	supportSubjects: (profile.support_subjects || []).filter((item) =>
-		["biology", "chemistry", "physics", "math"].includes(item),
-	) as StudentProfile["supportSubjects"],
-	strongSubjects: (profile.strong_subjects || []).filter((item) =>
-		["biology", "chemistry", "physics", "math"].includes(item),
-	) as StudentProfile["strongSubjects"],
+	supportSubjects:
+		normalizeSubjectList(profile.support_subjects).length > 0
+			? (normalizeSubjectList(profile.support_subjects) as StudentProfile["supportSubjects"])
+			: (deriveSubjectsFromScores(profile.subject_scores).support as StudentProfile["supportSubjects"]),
+	strongSubjects:
+		normalizeSubjectList(profile.strong_subjects).length > 0
+			? (normalizeSubjectList(profile.strong_subjects) as StudentProfile["strongSubjects"])
+			: (deriveSubjectsFromScores(profile.subject_scores).strong as StudentProfile["strongSubjects"]),
 	diagnosticCompleted:
 		typeof profile.diagnostic_completed === "boolean"
 			? profile.diagnostic_completed

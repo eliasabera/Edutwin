@@ -79,6 +79,10 @@ const LIQUID_FALLBACK_BASE_URL = `http://${API_HOST}:8001`;
 const PYTHON_TEXTBOOK_ASSIST_URL = `${PYTHON_API_BASE_URL}/textbook/assist`;
 const PYTHON_TEXTBOOK_ASSIST_8001_URL = `http://${API_HOST}:8001/textbook/assist`;
 const PYTHON_TEXTBOOK_ASSIST_8011_URL = `http://${API_HOST}:8011/textbook/assist`;
+const TEXTBOOK_RESOURCES_URL = `${NODE_API_BASE_URL}/api/ai/textbook/resources`;
+const PYTHON_TEXTBOOK_RESOURCES_URL = `${PYTHON_API_BASE_URL}/textbook/resources`;
+const PYTHON_TEXTBOOK_RESOURCES_8001_URL = `http://${API_HOST}:8001/textbook/resources`;
+const PYTHON_TEXTBOOK_RESOURCES_8011_URL = `http://${API_HOST}:8011/textbook/resources`;
 const TEXTBOOK_SELECTION_ASK_URL = `${NODE_API_BASE_URL}/api/ai/textbook/selection-ask`;
 const PYTHON_TEXTBOOK_SELECTION_ASK_URL = `${PYTHON_API_BASE_URL}/textbook/selection-ask`;
 const PYTHON_TEXTBOOK_SELECTION_ASK_8001_URL =
@@ -555,6 +559,7 @@ export type TextbookSelectionAskPayload = {
   chapter: string;
   question: string;
   selected_text: string;
+  full_name?: string;
   unit?: string;
   current_topic?: string;
   current_page?: number;
@@ -569,6 +574,23 @@ export type TextbookSelectionAskResponse = {
   selected_text: string;
   message?: string;
   current_page?: number | null;
+};
+
+export type TextbookResourcesPayload = {
+  subject: SubjectName;
+  grade: string;
+  chapter?: string;
+  unit?: string;
+};
+
+export type TextbookResourceItem = {
+  id: string;
+  chapter: string;
+  topic: string;
+  title: string;
+  type: "canvas" | "ar";
+  url: string;
+  page?: number | null;
 };
 
 type SubmitPracticeAttemptPayload = {
@@ -1060,6 +1082,83 @@ export const fetchTextbookAssist = async (
     message: "Interactive assist is temporarily unavailable.",
     current_page: typeof payload.current_page === "number" ? payload.current_page : null,
   };
+};
+
+export const fetchTextbookResources = async (
+  payload: TextbookResourcesPayload,
+): Promise<TextbookResourceItem[]> => {
+  const endpointCandidates = unique([
+    PYTHON_TEXTBOOK_RESOURCES_8011_URL,
+    PYTHON_TEXTBOOK_RESOURCES_URL,
+    PYTHON_TEXTBOOK_RESOURCES_8001_URL,
+    TEXTBOOK_RESOURCES_URL,
+  ]);
+
+  let lastError: unknown = null;
+
+  for (const endpoint of endpointCandidates) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 7000);
+
+    try {
+      const useNodeHeaders = endpoint === TEXTBOOK_RESOURCES_URL;
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: useNodeHeaders
+          ? buildAuthHeaders()
+          : {
+              "Content-Type": "application/json",
+            },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        lastError = new Error(await readErrorMessage(response));
+        continue;
+      }
+
+      const data = await response.json();
+      const rawItems = Array.isArray(data?.resources) ? data.resources : [];
+      return rawItems
+        .map((item: unknown, index: number) => {
+          if (!item || typeof item !== "object") {
+            return null;
+          }
+          const record = item as Record<string, unknown>;
+          const type = String(record.type || "").toLowerCase();
+          const url = typeof record.url === "string" ? record.url.trim() : "";
+          if ((type !== "canvas" && type !== "ar") || !url) {
+            return null;
+          }
+          return {
+            id:
+              (typeof record.id === "string" && record.id.trim()) ||
+              `resource-${index + 1}`,
+            chapter:
+              (typeof record.chapter === "string" && record.chapter.trim()) ||
+              "General",
+            topic:
+              (typeof record.topic === "string" && record.topic.trim()) ||
+              "General",
+            title:
+              (typeof record.title === "string" && record.title.trim()) ||
+              `${type.toUpperCase()} model`,
+            type: type as "canvas" | "ar",
+            url,
+            page: typeof record.page === "number" ? record.page : null,
+          };
+        })
+        .filter(Boolean) as TextbookResourceItem[];
+    } catch (error) {
+      lastError = error;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  console.warn("Textbook resources unavailable:", lastError);
+  return [];
 };
 
 export const fetchTextbookSelectionAsk = async (

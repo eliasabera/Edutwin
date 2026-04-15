@@ -63,8 +63,10 @@ export default function ProfileScreen() {
                   ? "support"
                   : "medium",
             twinName: profile.twin_name || currentProfile.twinName,
-            supportSubjects: normalizedSupport,
-            strongSubjects: normalizedStrong,
+            supportSubjects:
+              normalizedSupport.length > 0 ? normalizedSupport : currentProfile.supportSubjects,
+            strongSubjects:
+              normalizedStrong.length > 0 ? normalizedStrong : currentProfile.strongSubjects,
             diagnosticCompleted:
               typeof profile.diagnostic_completed === "boolean"
                 ? profile.diagnostic_completed

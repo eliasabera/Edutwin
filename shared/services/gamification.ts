@@ -3,7 +3,7 @@ import { Platform } from "react-native";
 import { useSyncExternalStore } from "react";
 import type { StudentProfile, SubjectName } from "../types/domain.types";
 import { getAuthToken } from "./auth-service";
-import { updateStudentProfile } from "../store/user-store";
+import { getStudentProfile, updateStudentProfile } from "../store/user-store";
 
 export type AchievementId =
   | "first_step"
@@ -51,6 +51,12 @@ type TwinProgressPayload = {
   performance_band?: "support" | "medium" | "top" | "low";
   support_subjects?: SubjectName[];
   strong_subjects?: SubjectName[];
+};
+
+type SubjectPerformance = {
+  attempts: number;
+  average: number;
+  lastScore: number;
 };
 
 const buildAchievement = (
@@ -114,6 +120,12 @@ const defaultState: GamificationState = {
 
 const listeners = new Set<() => void>();
 let gamificationState = defaultState;
+let localSubjectPerformance: Record<SubjectName, SubjectPerformance> = {
+  biology: { attempts: 0, average: 0, lastScore: 0 },
+  chemistry: { attempts: 0, average: 0, lastScore: 0 },
+  physics: { attempts: 0, average: 0, lastScore: 0 },
+  math: { attempts: 0, average: 0, lastScore: 0 },
+};
 
 const emitChange = () => {
   listeners.forEach((listener) => listener());
@@ -148,6 +160,31 @@ const updateState = (
 ) => {
   gamificationState = updater(gamificationState);
   emitChange();
+};
+
+const normalizeScorePercent = (score: number, totalQuestions: number) => {
+  if (!Number.isFinite(score) || !Number.isFinite(totalQuestions) || totalQuestions <= 0) {
+    return 0;
+  }
+  return Math.max(0, Math.min(100, Math.round((score / totalQuestions) * 100)));
+};
+
+const deriveSubjectsFromLocalPerformance = () => {
+  const support: SubjectName[] = [];
+  const strong: SubjectName[] = [];
+
+  for (const [subject, details] of Object.entries(localSubjectPerformance) as Array<
+    [SubjectName, SubjectPerformance]
+  >) {
+    if (details.attempts <= 0) continue;
+    if (details.average >= 80) {
+      strong.push(subject);
+    } else if (details.average <= 55) {
+      support.push(subject);
+    }
+  }
+
+  return { support, strong };
 };
 
 const extractHostFromExpo = () => {
@@ -257,8 +294,31 @@ export const recordPracticeCompletion = ({
   source,
 }: CompletionPayload) => {
   const todayKey = toDateKey(new Date());
-  const completionPercent =
-    totalQuestions > 0 ? Math.round((score / totalQuestions) * 100) : 0;
+  const completionPercent = normalizeScorePercent(score, totalQuestions);
+
+  if (subject) {
+  const previous = localSubjectPerformance[subject] || { attempts: 0, average: 0, lastScore: 0 };
+  const attempts = previous.attempts + 1;
+  const average = Math.round((previous.average * previous.attempts + completionPercent) / attempts);
+  localSubjectPerformance = {
+    ...localSubjectPerformance,
+    [subject]: { attempts, average, lastScore: completionPercent },
+  };
+
+  const derived = deriveSubjectsFromLocalPerformance();
+  const currentProfile = getStudentProfile();
+  updateStudentProfile({
+    supportSubjects: derived.support.length > 0 ? derived.support : currentProfile.supportSubjects,
+    strongSubjects: derived.strong.length > 0 ? derived.strong : currentProfile.strongSubjects,
+    masteryScore: Math.max(currentProfile.masteryScore, completionPercent),
+    performanceBand:
+      completionPercent >= 80
+        ? "top"
+        : completionPercent <= 55
+          ? "support"
+          : currentProfile.performanceBand,
+  });
+  }
 
   updateState((current) => {
     let currentStreak = current.currentStreak;
@@ -332,6 +392,12 @@ export const recordAssessmentCompletion = (
 
 export const resetGamificationState = () => {
   gamificationState = defaultState;
+  localSubjectPerformance = {
+    biology: { attempts: 0, average: 0, lastScore: 0 },
+    chemistry: { attempts: 0, average: 0, lastScore: 0 },
+    physics: { attempts: 0, average: 0, lastScore: 0 },
+    math: { attempts: 0, average: 0, lastScore: 0 },
+  };
   emitChange();
 };
 

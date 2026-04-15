@@ -1,5 +1,9 @@
 import Constants from "expo-constants";
-import { fetchTextbookSelectionAsk } from "@/shared/services/ai-service";
+import {
+  fetchTextbookResources,
+  fetchTextbookSelectionAsk,
+  type TextbookResourceItem,
+} from "@/shared/services/ai-service";
 import { useStudentProfile } from "@/shared/store/user-store";
 import { Ionicons } from "@expo/vector-icons";
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -27,14 +31,7 @@ type TextbookReaderScreenProps = {
   lesson?: ReaderLesson;
 };
 
-type LearningResource = {
-  id: string;
-  chapter: string;
-  topic: string;
-  title: string;
-  type: "canvas" | "ar";
-  url: string;
-};
+type LearningResource = TextbookResourceItem;
 
 const PHYSICS_UNIT1_RESOURCES: LearningResource[] = [
   {
@@ -146,6 +143,18 @@ const HIDE_PDFJS_UI_SCRIPT = `
   true;
 `;
 
+const sanitizeSelectionAnswerText = (text: string) => {
+  let cleaned = String(text || "");
+  cleaned = cleaned.replace(/\*+/g, "");
+  cleaned = cleaned.replace(/#+/g, "");
+  cleaned = cleaned.replace(
+    /\b(?:Example|Examples|Summary|Practice\s*Question|Activity(?:\s*\d+)?)\s*:.*/i,
+    "",
+  );
+  cleaned = cleaned.replace(/\s+/g, " ").trim();
+  return cleaned || "I could not generate a clear answer from the selected text.";
+};
+
 export default function TextbookReaderScreen({
   lesson,
 }: TextbookReaderScreenProps) {
@@ -155,9 +164,12 @@ export default function TextbookReaderScreen({
   const viewerUrl = textbookUrl ? textbookUrl : "";
   const [showResourceModal, setShowResourceModal] = useState(false);
   const [activeResource, setActiveResource] = useState<LearningResource | null>(null);
+  const [resources, setResources] = useState<LearningResource[]>([]);
+  const [isLoadingResources, setIsLoadingResources] = useState(false);
   const [chapterFilter, setChapterFilter] = useState("All");
   const [topicFilter, setTopicFilter] = useState("All");
   const [selectedText, setSelectedText] = useState("");
+  const [selectedTextDraft, setSelectedTextDraft] = useState("");
   const [showAskAiModal, setShowAskAiModal] = useState(false);
   const [selectionQuestion, setSelectionQuestion] = useState("");
   const [selectionAnswer, setSelectionAnswer] = useState("");
@@ -171,13 +183,6 @@ export default function TextbookReaderScreen({
     }
     return "physics";
   }, [lesson?.subject]);
-
-  const resources = useMemo(() => {
-    if (subjectName !== "physics") {
-      return [];
-    }
-    return PHYSICS_UNIT1_RESOURCES;
-  }, [subjectName]);
 
   const chapterOptions = useMemo(
     () => ["All", ...Array.from(new Set(resources.map((item) => item.chapter)))],
@@ -200,7 +205,7 @@ export default function TextbookReaderScreen({
     });
   }, [chapterFilter, resources, topicFilter]);
 
-  const showResourceButton = Boolean(textbookUrl) && resources.length > 0;
+  const showResourceButton = Boolean(textbookUrl);
   const requestSubject =
     subjectName === "biology" ||
     subjectName === "chemistry" ||
@@ -210,10 +215,54 @@ export default function TextbookReaderScreen({
       : "physics";
   const requestGrade = String(studentProfile.grade || "9").trim() || "9";
 
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadResources = async () => {
+      if (!textbookUrl) {
+        setResources([]);
+        return;
+      }
+
+      setIsLoadingResources(true);
+      try {
+        const remoteResources = await fetchTextbookResources({
+          subject: requestSubject,
+          grade: requestGrade,
+        });
+        if (!isMounted) return;
+
+        if (remoteResources.length > 0) {
+          setResources(remoteResources);
+        } else if (requestSubject === "physics") {
+          setResources(PHYSICS_UNIT1_RESOURCES);
+        } else {
+          setResources([]);
+        }
+      } catch {
+        if (!isMounted) return;
+        if (requestSubject === "physics") {
+          setResources(PHYSICS_UNIT1_RESOURCES);
+        } else {
+          setResources([]);
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoadingResources(false);
+        }
+      }
+    };
+
+    void loadResources();
+    return () => {
+      isMounted = false;
+    };
+  }, [requestGrade, requestSubject, textbookUrl]);
+
   const askFromSelection = async () => {
-    const normalizedSelection = selectedText.trim();
+    const normalizedSelection = selectedTextDraft.trim();
     const normalizedQuestion = selectionQuestion.trim();
-    if (!normalizedSelection || !normalizedQuestion) {
+    if (!normalizedQuestion) {
       return;
     }
 
@@ -224,10 +273,13 @@ export default function TextbookReaderScreen({
       const response = await fetchTextbookSelectionAsk({
         subject: requestSubject,
         grade: requestGrade,
-        chapter: "1",
-        unit: "Unit1",
+        chapter: "",
         question: normalizedQuestion,
         selected_text: normalizedSelection,
+        full_name:
+          typeof studentProfile.fullName === "string" && studentProfile.fullName.trim()
+            ? studentProfile.fullName
+            : "Student",
         support_subjects: Array.isArray(studentProfile.supportSubjects)
           ? studentProfile.supportSubjects
           : [],
@@ -244,7 +296,7 @@ export default function TextbookReaderScreen({
             ? studentProfile.performanceBand
             : "unknown",
       });
-      setSelectionAnswer(response.response || "No answer generated.");
+      setSelectionAnswer(sanitizeSelectionAnswerText(response.response || "No answer generated."));
     } catch {
       setSelectionAnswer("I could not process this selection right now. Please try again.");
     } finally {
@@ -338,17 +390,18 @@ export default function TextbookReaderScreen({
         </View>
       ) : null}
 
-      {selectedText ? (
-        <View style={[styles.selectionAskWrap, { top: insets.top + 62 }]} pointerEvents="box-none">
-          <Pressable
-            style={({ pressed }) => [styles.selectionAskButton, pressed && styles.selectionAskButtonPressed]}
-            onPress={() => setShowAskAiModal(true)}
-          >
-            <Ionicons name="chatbubble-ellipses-outline" size={16} color="#FFFFFF" />
-            <Text style={styles.selectionAskText}>Ask AI</Text>
-          </Pressable>
-        </View>
-      ) : null}
+      <View style={[styles.selectionAskWrap, { top: insets.top + 62 }]} pointerEvents="box-none">
+        <Pressable
+          style={({ pressed }) => [styles.selectionAskButton, pressed && styles.selectionAskButtonPressed]}
+          onPress={() => {
+            setSelectedTextDraft(selectedText);
+            setShowAskAiModal(true);
+          }}
+        >
+          <Ionicons name="chatbubble-ellipses-outline" size={16} color="#FFFFFF" />
+          <Text style={styles.selectionAskText}>Ask AI</Text>
+        </Pressable>
+      </View>
 
       <Modal
         visible={showResourceModal}
@@ -482,7 +535,11 @@ export default function TextbookReaderScreen({
                   ))
                 ) : (
                   <View style={styles.emptyFilterState}>
-                    <Text style={styles.emptyFilterText}>No models match this filter.</Text>
+                    <Text style={styles.emptyFilterText}>
+                      {isLoadingResources
+                        ? "Loading textbook models..."
+                        : "No models found for this textbook/filter."}
+                    </Text>
                   </View>
                 )}
               </ScrollView>
@@ -511,11 +568,14 @@ export default function TextbookReaderScreen({
 
             <ScrollView contentContainerStyle={styles.askModalContent}>
               <Text style={styles.askLabel}>Selected text</Text>
-              <View style={styles.selectionPreviewCard}>
-                <Text style={styles.selectionPreviewText} numberOfLines={7}>
-                  {selectedText || "Highlight a sentence from the textbook first."}
-                </Text>
-              </View>
+              <TextInput
+                value={selectedTextDraft}
+                onChangeText={setSelectedTextDraft}
+                placeholder="Highlight text from the textbook, or paste/type excerpt here."
+                placeholderTextColor="#7E8EA8"
+                multiline
+                style={styles.askInput}
+              />
 
               <Text style={styles.askLabel}>Your question</Text>
               <TextInput
@@ -529,12 +589,13 @@ export default function TextbookReaderScreen({
 
               <Pressable
                 onPress={() => {
+                  setSelectedText(selectedTextDraft);
                   void askFromSelection();
                 }}
-                disabled={!selectedText.trim() || !selectionQuestion.trim() || isAskingSelection}
+                disabled={!selectionQuestion.trim() || isAskingSelection}
                 style={({ pressed }) => [
                   styles.askSubmitButton,
-                  (!selectedText.trim() || !selectionQuestion.trim() || isAskingSelection) &&
+                  (!selectionQuestion.trim() || isAskingSelection) &&
                     styles.askSubmitButtonDisabled,
                   pressed && styles.askSubmitButtonPressed,
                 ]}

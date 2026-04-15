@@ -60,16 +60,18 @@ export default function HomeScreen() {
                     ? "medium"
                     : currentProfile.performanceBand,
             twinName: latestProfile.twin_name || currentProfile.twinName,
-            supportSubjects: Array.isArray(latestProfile.support_subjects)
-              ? latestProfile.support_subjects.filter((item) =>
-                  ["biology", "chemistry", "physics", "math"].includes(item),
-                ) as typeof currentProfile.supportSubjects
-              : currentProfile.supportSubjects,
-            strongSubjects: Array.isArray(latestProfile.strong_subjects)
-              ? latestProfile.strong_subjects.filter((item) =>
-                  ["biology", "chemistry", "physics", "math"].includes(item),
-                ) as typeof currentProfile.strongSubjects
-              : currentProfile.strongSubjects,
+            supportSubjects:
+              Array.isArray(latestProfile.support_subjects) && latestProfile.support_subjects.length > 0
+                ? (latestProfile.support_subjects.filter((item) =>
+                    ["biology", "chemistry", "physics", "math"].includes(item),
+                  ) as typeof currentProfile.supportSubjects)
+                : currentProfile.supportSubjects,
+            strongSubjects:
+              Array.isArray(latestProfile.strong_subjects) && latestProfile.strong_subjects.length > 0
+                ? (latestProfile.strong_subjects.filter((item) =>
+                    ["biology", "chemistry", "physics", "math"].includes(item),
+                  ) as typeof currentProfile.strongSubjects)
+                : currentProfile.strongSubjects,
             diagnosticCompleted:
               typeof latestProfile.diagnostic_completed === "boolean"
                 ? latestProfile.diagnostic_completed

@@ -18,7 +18,7 @@ import {
     loginUser,
     mapBackendProfileToStudentProfile,
 } from "../../../shared/services/auth-service";
-import { updateStudentProfile } from "../../../shared/store/user-store";
+import { getStudentProfile, updateStudentProfile } from "../../../shared/store/user-store";
 
 export default function LoginComponent() {
   const router = useRouter();
@@ -39,7 +39,19 @@ export default function LoginComponent() {
       setIsLoading(true);
       await loginUser(trimmedEmail, password);
       const backendProfile = await fetchStudentProfile();
-      updateStudentProfile(mapBackendProfileToStudentProfile(backendProfile));
+      const mappedProfile = mapBackendProfileToStudentProfile(backendProfile);
+      const currentProfile = getStudentProfile();
+      updateStudentProfile({
+        ...mappedProfile,
+        supportSubjects:
+          mappedProfile.supportSubjects.length > 0
+            ? mappedProfile.supportSubjects
+            : currentProfile.supportSubjects,
+        strongSubjects:
+          mappedProfile.strongSubjects.length > 0
+            ? mappedProfile.strongSubjects
+            : currentProfile.strongSubjects,
+      });
       router.replace("/(tabs)/home" as never);
     } catch (error) {
       const message =

@@ -9,6 +9,7 @@ import {
   View,
 } from "react-native";
 import { COLORS } from "../../../shared/constants/colors";
+import { recordAssessmentCompletion } from "../../../shared/services/gamification";
 import { updateStudentProfile } from "../../../shared/store/user-store";
 import type {
   PerformanceBand,
@@ -179,6 +180,17 @@ export default function StudentSetupComponent() {
       strongSubjects,
       diagnosticCompleted: true,
       twinName: "EduTwin Grade 9",
+    });
+
+    Object.entries(bySubject).forEach(([subject, values]) => {
+      if (!values.length) return;
+
+      const correctCount = values.reduce((sum, value) => sum + value, 0);
+      recordAssessmentCompletion(
+        subject as SubjectName,
+        correctCount,
+        values.length,
+      );
     });
 
     router.replace("/home" as never);
