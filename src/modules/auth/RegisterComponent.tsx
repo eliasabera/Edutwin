@@ -2,19 +2,19 @@ import { Ionicons } from "@expo/vector-icons";
 import { Link, useRouter } from "expo-router";
 import React, { useState } from "react";
 import {
-  Alert,
-  Image,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    Alert,
+    Image,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
-  STUDENT_CARTOON_AVATARS,
-  TWIN_CARTOON_AVATARS,
+    STUDENT_CARTOON_AVATARS,
+    TWIN_CARTOON_AVATARS,
 } from "../../../shared/constants/avatar-presets";
 import { COLORS } from "../../../shared/constants/colors";
 import { registerStudent } from "../../../shared/services/auth-service";

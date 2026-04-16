@@ -1,10 +1,13 @@
 import {
-  fetchStudentProfile,
-  mapBackendProfileToStudentProfile,
-  clearAuthToken,
-  setCachedStudentProfile,
-} from "@/shared/services/auth-service";
+  STUDENT_CARTOON_AVATARS,
+  TWIN_CARTOON_AVATARS,
+} from "@/shared/constants/avatar-presets";
 import { clearChatSessionId } from "@/shared/services/ai-service";
+import {
+  clearAuthToken,
+  fetchStudentProfile,
+  setCachedStudentProfile
+} from "@/shared/services/auth-service";
 import { resetGamificationState } from "@/shared/services/gamification";
 import {
   getStudentProfile,
@@ -12,14 +15,10 @@ import {
   updateStudentProfile,
   useStudentProfile,
 } from "@/shared/store/user-store";
-import {
-  STUDENT_CARTOON_AVATARS,
-  TWIN_CARTOON_AVATARS,
-} from "@/shared/constants/avatar-presets";
 import { Ionicons } from "@expo/vector-icons";
+import { useFocusEffect } from "@react-navigation/native";
 import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
-import { useFocusEffect } from "@react-navigation/native";
 import { useCallback, useRef, useState } from "react";
 import { Alert, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
