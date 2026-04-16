@@ -57,6 +57,15 @@ type SubjectPerformance = {
   attempts: number;
   average: number;
   lastScore: number;
+  supportSignals: number;
+  strongSignals: number;
+};
+
+type TutorSignalKind = "support" | "strong" | "neutral";
+
+type TutorInteractionSignal = {
+  kind: TutorSignalKind;
+  scoreHint?: number;
 };
 
 const buildAchievement = (
@@ -121,10 +130,10 @@ const defaultState: GamificationState = {
 const listeners = new Set<() => void>();
 let gamificationState = defaultState;
 let localSubjectPerformance: Record<SubjectName, SubjectPerformance> = {
-  biology: { attempts: 0, average: 0, lastScore: 0 },
-  chemistry: { attempts: 0, average: 0, lastScore: 0 },
-  physics: { attempts: 0, average: 0, lastScore: 0 },
-  math: { attempts: 0, average: 0, lastScore: 0 },
+  biology: { attempts: 0, average: 0, lastScore: 0, supportSignals: 0, strongSignals: 0 },
+  chemistry: { attempts: 0, average: 0, lastScore: 0, supportSignals: 0, strongSignals: 0 },
+  physics: { attempts: 0, average: 0, lastScore: 0, supportSignals: 0, strongSignals: 0 },
+  math: { attempts: 0, average: 0, lastScore: 0, supportSignals: 0, strongSignals: 0 },
 };
 
 const emitChange = () => {
@@ -177,14 +186,51 @@ const deriveSubjectsFromLocalPerformance = () => {
     [SubjectName, SubjectPerformance]
   >) {
     if (details.attempts <= 0) continue;
-    if (details.average >= 80) {
+    if (details.average >= 80 || details.strongSignals >= 2) {
       strong.push(subject);
-    } else if (details.average <= 55) {
+    } else if (details.average <= 55 || details.supportSignals >= 2) {
       support.push(subject);
     }
   }
 
   return { support, strong };
+};
+
+const applySoftSubjectSignal = (
+  subject: SubjectName | undefined,
+  signal: TutorInteractionSignal,
+) => {
+  if (!subject || signal.kind === "neutral") {
+    return;
+  }
+
+  const previous = localSubjectPerformance[subject] || {
+    attempts: 0,
+    average: 0,
+    lastScore: 0,
+    supportSignals: 0,
+    strongSignals: 0,
+  };
+
+  const softScore =
+    typeof signal.scoreHint === "number"
+      ? signal.scoreHint
+      : signal.kind === "strong"
+        ? 85
+        : 45;
+
+  const attempts = previous.attempts + 1;
+  const average = Math.round(
+    (previous.average * previous.attempts + softScore) / attempts,
+  );
+
+  const supportSignals = previous.supportSignals + (signal.kind === "support" ? 1 : 0);
+  const strongSignals = previous.strongSignals + (signal.kind === "strong" ? 1 : 0);
+
+  localSubjectPerformance = {
+    ...localSubjectPerformance,
+    [subject]: { attempts, average, lastScore: softScore, supportSignals, strongSignals },
+  };
 };
 
 const extractHostFromExpo = () => {
@@ -390,13 +436,121 @@ export const recordAssessmentCompletion = (
   });
 };
 
+export const recordTutorInteraction = (
+  subject?: SubjectName,
+  signal: TutorInteractionSignal = { kind: "neutral" },
+) => {
+  const todayKey = toDateKey(new Date());
+
+  applySoftSubjectSignal(subject, signal);
+
+  const derived = deriveSubjectsFromLocalPerformance();
+  const currentProfile = getStudentProfile();
+  if (derived.support.length > 0 || derived.strong.length > 0) {
+    updateStudentProfile({
+      supportSubjects:
+        derived.support.length > 0 ? derived.support : currentProfile.supportSubjects,
+      strongSubjects:
+        derived.strong.length > 0 ? derived.strong : currentProfile.strongSubjects,
+    });
+  }
+
+  updateState((current) => {
+    let currentStreak = current.currentStreak;
+    if (current.lastActiveDate !== todayKey) {
+      currentStreak =
+        current.lastActiveDate === getYesterdayKey(todayKey)
+          ? current.currentStreak + 1
+          : 1;
+    }
+
+    let achievements = current.achievements;
+    achievements = unlockAchievement(achievements, "first_step", todayKey);
+    if (currentStreak >= 3) {
+      achievements = unlockAchievement(achievements, "streak_3", todayKey);
+    }
+
+    const digitalTwinSignals = current.digitalTwinSignals + 1;
+    if (digitalTwinSignals >= 5) {
+      achievements = unlockAchievement(achievements, "twin_builder", todayKey);
+    }
+
+    return {
+      ...current,
+      currentStreak,
+      bestStreak: Math.max(current.bestStreak, currentStreak),
+      lastActiveDate: todayKey,
+      aiPracticeCompleted: current.aiPracticeCompleted + 1,
+      digitalTwinSignals,
+      lastSubject: subject || current.lastSubject,
+      lastEventLabel: `${subject || "general"} AI tutor interaction recorded`,
+      achievements,
+    };
+  });
+
+  if ((currentProfile.streak ?? 0) < gamificationState.currentStreak) {
+    updateStudentProfile({
+      streak: gamificationState.currentStreak,
+      lastActive: todayKey,
+    });
+  }
+
+  void syncTwinProgress({
+    xp_delta: 2,
+    subject,
+  });
+};
+
+export const classifyTutorPrompt = (prompt: string): TutorInteractionSignal => {
+  const normalized = prompt.trim().toLowerCase();
+
+  if (!normalized) {
+    return { kind: "neutral" };
+  }
+
+  const supportPatterns = [
+    /\bsimple\b/,
+    /\bmore detail\b/,
+    /\bmore details\b/,
+    /\bstep by step\b/,
+    /\bexplain\b/,
+    /\beasy\b/,
+    /\brepeat\b/,
+    /\bagain\b/,
+    /\bi don't understand\b/,
+    /\bi do not understand\b/,
+    /\bconfused\b/,
+  ];
+
+  const strongPatterns = [
+    /\badvanced\b/,
+    /\bdeeper\b/,
+    /\bmore challenging\b/,
+    /\bchallenge\b/,
+    /\bquiz me\b/,
+    /\btest me\b/,
+    /\bapply\b/,
+    /\bbeyond\b/,
+  ];
+
+  if (supportPatterns.some((pattern) => pattern.test(normalized))) {
+    return { kind: "support", scoreHint: 40 };
+  }
+
+  if (strongPatterns.some((pattern) => pattern.test(normalized))) {
+    return { kind: "strong", scoreHint: 88 };
+  }
+
+  return { kind: "neutral" };
+};
+
 export const resetGamificationState = () => {
   gamificationState = defaultState;
   localSubjectPerformance = {
-    biology: { attempts: 0, average: 0, lastScore: 0 },
-    chemistry: { attempts: 0, average: 0, lastScore: 0 },
-    physics: { attempts: 0, average: 0, lastScore: 0 },
-    math: { attempts: 0, average: 0, lastScore: 0 },
+    biology: { attempts: 0, average: 0, lastScore: 0, supportSignals: 0, strongSignals: 0 },
+    chemistry: { attempts: 0, average: 0, lastScore: 0, supportSignals: 0, strongSignals: 0 },
+    physics: { attempts: 0, average: 0, lastScore: 0, supportSignals: 0, strongSignals: 0 },
+    math: { attempts: 0, average: 0, lastScore: 0, supportSignals: 0, strongSignals: 0 },
   };
   emitChange();
 };

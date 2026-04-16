@@ -1,9 +1,10 @@
+import { fetchResolvedTextbook } from "@/shared/services/ai-service";
+import { setHideTabBar } from "@/shared/store/ui-store";
 import { useStudentProfile } from "@/shared/store/user-store";
 import TextbookReaderScreen from "@/src/modules/textbook/TextbookReaderScreen";
 import { Ionicons } from "@expo/vector-icons";
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
-    Image,
     Pressable,
     ScrollView,
     StyleSheet,
@@ -32,13 +33,6 @@ const SUBJECT_ICONS: Record<Subject, keyof typeof Ionicons.glyphMap> = {
   Math: "calculator-outline",
 };
 
-const SUBJECT_BOOK_COVERS: Record<Subject, string> = {
-  Biology: "https://picsum.photos/id/1040/420/620",
-  Chemistry: "https://picsum.photos/id/1033/420/620",
-  Physics: "https://picsum.photos/id/1076/420/620",
-  Math: "https://picsum.photos/id/1062/420/620",
-};
-
 const DEFAULT_TEXTBOOK_URL =
   "https://vzqerbreduraaluicaxe.supabase.co/storage/v1/object/public/3d-models/G9-Biology-STB-2023-web.pdf";
 
@@ -46,7 +40,7 @@ const SUBJECT_TEXTBOOK_URLS: Record<Subject, string> = {
   Biology: DEFAULT_TEXTBOOK_URL,
   Chemistry: DEFAULT_TEXTBOOK_URL,
   Physics:
-    "https://vzqerbreduraaluicaxe.supabase.co/storage/v1/object/public/3d-models/G9-Physics-STB-2023-webUnit1.pdf",
+    "https://vzqerbreduraaluicaxe.supabase.co/storage/v1/object/public/3d-models/Grade11_Physics_Unit3.pdf",
   Math: DEFAULT_TEXTBOOK_URL,
 };
 
@@ -114,6 +108,17 @@ export default function TextbookScreen() {
   const insets = useSafeAreaInsets();
   const studentProfile = useStudentProfile();
   const [activeLesson, setActiveLesson] = useState<ActiveLesson | null>(null);
+  const [resolvedTextbookUrls, setResolvedTextbookUrls] = useState<
+    Partial<Record<Subject, string>>
+  >({});
+
+  useEffect(() => {
+    setHideTabBar(Boolean(activeLesson));
+
+    return () => {
+      setHideTabBar(false);
+    };
+  }, [activeLesson]);
 
   const totalTopics = useMemo(
     () =>
@@ -156,7 +161,6 @@ export default function TextbookScreen() {
           subject,
           isSupport,
           isStrong,
-          coverImage: SUBJECT_BOOK_COVERS[subject],
           priority,
         };
       });
@@ -166,10 +170,49 @@ export default function TextbookScreen() {
     [strongSet, supportSet],
   );
 
+  useEffect(() => {
+    let isMounted = true;
+    const currentGrade = String(studentProfile.grade || "9").trim() || "9";
+
+    const fetchByGrade = async () => {
+      const mapping: Record<Subject, "biology" | "chemistry" | "physics" | "math"> = {
+        Biology: "biology",
+        Chemistry: "chemistry",
+        Physics: "physics",
+        Math: "math",
+      };
+
+      const entries = await Promise.all(
+        SUBJECTS.map(async (subject) => {
+          const resolved = await fetchResolvedTextbook(mapping[subject], currentGrade);
+          return [subject, resolved?.textbook_url || ""] as const;
+        }),
+      );
+
+      if (!isMounted) return;
+
+      setResolvedTextbookUrls(
+        entries.reduce((acc, [subject, url]) => {
+          acc[subject] = url;
+          return acc;
+        }, {} as Partial<Record<Subject, string>>),
+      );
+    };
+
+    void fetchByGrade();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [studentProfile.grade]);
+
   const handleSelectSubject = (subject: Subject) => {
+    const resolvedUrl = Object.prototype.hasOwnProperty.call(resolvedTextbookUrls, subject)
+      ? resolvedTextbookUrls[subject] || ""
+      : SUBJECT_TEXTBOOK_URLS[subject];
     setActiveLesson({
       subject,
-      textbookUrl: SUBJECT_TEXTBOOK_URLS[subject],
+      textbookUrl: resolvedUrl,
     });
   };
 
@@ -217,18 +260,13 @@ export default function TextbookScreen() {
 
         <View style={styles.subjectGridOnly}>
           {subjectCards.map((entry) => {
-            const accent = entry.isSupport
-              ? "#FF9600"
-              : entry.isStrong
-                ? "#17A34A"
-                : "#0B5FFF";
+            const accent = "#0B5FFF";
 
             return (
               <Pressable
                 key={entry.subject}
                 style={({ pressed }) => [
                   styles.subjectCard,
-                  entry.isSupport && styles.subjectCardSupport,
                   pressed && styles.subjectCardPressed,
                 ]}
                 onPress={() => handleSelectSubject(entry.subject)}
@@ -247,22 +285,8 @@ export default function TextbookScreen() {
                     </Text>
                   </View>
                   {entry.isSupport || entry.isStrong ? (
-                    <View
-                      style={[
-                        styles.statusChip,
-                        entry.isSupport
-                          ? styles.statusChipSupport
-                          : styles.statusChipStrong,
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.statusChipText,
-                          entry.isSupport
-                            ? styles.statusChipTextSupport
-                            : styles.statusChipTextStrong,
-                        ]}
-                      >
+                    <View style={styles.statusChip}>
+                      <Text style={styles.statusChipText}>
                         {entry.isSupport ? "Support" : "Strong"}
                       </Text>
                     </View>
@@ -270,11 +294,15 @@ export default function TextbookScreen() {
                 </View>
 
                 <View style={[styles.subjectImageFrame, { borderColor: accent }]}>
-                  <Image
-                    source={{ uri: entry.coverImage }}
-                    style={styles.subjectImage}
-                    resizeMode="cover"
-                  />
+                  <View style={[styles.subjectIconBadge, { borderColor: accent }]}> 
+                    <Ionicons name="book" size={34} color={accent} />
+                    <Ionicons
+                      name={SUBJECT_ICONS[entry.subject]}
+                      size={16}
+                      color={accent}
+                      style={styles.subjectIconBadgeOverlay}
+                    />
+                  </View>
                 </View>
               </Pressable>
             );
@@ -448,35 +476,41 @@ const styles = StyleSheet.create({
     paddingHorizontal: 7,
     paddingVertical: 3,
     borderWidth: 1,
-  },
-  statusChipSupport: {
-    backgroundColor: "rgba(255, 150, 0, 0.12)",
-    borderColor: "rgba(255, 150, 0, 0.32)",
-  },
-  statusChipStrong: {
-    backgroundColor: "rgba(23, 163, 74, 0.1)",
-    borderColor: "rgba(23, 163, 74, 0.3)",
+    backgroundColor: "rgba(11, 95, 255, 0.08)",
+    borderColor: "rgba(11, 95, 255, 0.24)",
   },
   statusChipText: {
+    color: "#0B5FFF",
     fontSize: 10,
     fontWeight: "800",
-  },
-  statusChipTextSupport: {
-    color: "#B96A00",
-  },
-  statusChipTextStrong: {
-    color: "#14833B",
   },
   subjectImageFrame: {
     width: "100%",
     height: 120,
     borderRadius: 12,
     borderWidth: 1.5,
-    overflow: "hidden",
     backgroundColor: "#DDE8FF",
+    alignItems: "center",
+    justifyContent: "center",
   },
-  subjectImage: {
-    width: "100%",
-    height: "100%",
+  subjectIconBadge: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    borderWidth: 1.5,
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+    position: "relative",
+    shadowColor: "#0E234E",
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 2,
+  },
+  subjectIconBadgeOverlay: {
+    position: "absolute",
+    right: 7,
+    bottom: 8,
   },
 });

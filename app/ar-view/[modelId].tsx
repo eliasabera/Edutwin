@@ -2,7 +2,7 @@ import { COLORS } from "@/shared/constants/colors";
 import { getArTopicById } from "@/shared/services/ar-service";
 import ARWebView from "@/src/modules/lab/ARWebView";
 import { CameraView, useCameraPermissions } from "expo-camera";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import {
   Pressable,
   StyleSheet,
@@ -12,6 +12,7 @@ import {
 
 export default function ArViewScreen() {
   const { modelId } = useLocalSearchParams<{ modelId?: string }>();
+  const router = useRouter();
   const topic = modelId ? getArTopicById(modelId) : null;
   const [cameraPermission, requestPermission] = useCameraPermissions();
 
@@ -55,8 +56,32 @@ export default function ArViewScreen() {
     <View style={styles.container}>
       <CameraView facing="back" style={styles.camera} />
       <View style={styles.modelLayer}>
-        <ARWebView topic={topic} fullScreen transparentBackground />
+        <ARWebView
+          topic={topic}
+          fullScreen
+          transparentBackground
+          onSessionEnded={() => {
+            if (router.canGoBack()) {
+              router.back();
+              return;
+            }
+            router.replace("/(tabs)/lab");
+          }}
+        />
       </View>
+
+      <Pressable
+        style={styles.closeButton}
+        onPress={() => {
+          if (router.canGoBack()) {
+            router.back();
+            return;
+          }
+          router.replace("/(tabs)/lab");
+        }}
+      >
+        <Text style={styles.closeButtonText}>Close</Text>
+      </Pressable>
 
       <View style={styles.topOverlay}>
         <Text style={styles.overlayTitle}>{topic.title}</Text>
@@ -93,6 +118,20 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     paddingHorizontal: 14,
     paddingVertical: 10,
+  },
+  closeButton: {
+    position: "absolute",
+    top: 22,
+    right: 16,
+    backgroundColor: "rgba(5, 11, 21, 0.74)",
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  closeButtonText: {
+    color: "#EAF1FF",
+    fontWeight: "800",
+    fontSize: 12,
   },
   overlayTitle: {
     fontSize: 16,

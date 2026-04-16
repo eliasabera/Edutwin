@@ -10,7 +10,7 @@ import {
 } from "react-native";
 import { COLORS } from "../../../shared/constants/colors";
 import { recordAssessmentCompletion } from "../../../shared/services/gamification";
-import { updateStudentProfile } from "../../../shared/store/user-store";
+import { updateStudentProfile, useStudentProfile } from "../../../shared/store/user-store";
 import type {
   PerformanceBand,
   SubjectName,
@@ -82,16 +82,29 @@ type QuestionRecord = {
 
 export default function StudentSetupComponent() {
   const router = useRouter();
+  const studentProfile = useStudentProfile();
+
+  const initialGrade = (() => {
+    const profileGrade = String(studentProfile.grade || "9").trim();
+    return profileGrade || "9";
+  })();
+
+  const initialLanguage =
+    studentProfile.preferredLanguage === "om" || studentProfile.preferredLanguage === "en"
+      ? studentProfile.preferredLanguage
+      : null;
+
+  const shouldSkipSetup = Boolean(initialGrade && initialLanguage);
 
   // --- STATE MANAGEMENT ---
   // Step: 'setup' -> 'quiz' -> 'result'
   const [currentStep, setCurrentStep] = useState<"setup" | "quiz" | "result">(
-    "setup",
+    shouldSkipSetup ? "quiz" : "setup",
   );
 
   // Setup State
-  const [grade, setGrade] = useState<string | null>("9");
-  const [lang, setLang] = useState<string | null>(null);
+  const [grade, setGrade] = useState<string | null>(initialGrade || "9");
+  const [lang, setLang] = useState<string | null>(initialLanguage);
 
   // Quiz State
   const [qIndex, setQIndex] = useState(0);
@@ -172,14 +185,14 @@ export default function StudentSetupComponent() {
       .map(([subject]) => subject) as SubjectName[];
 
     updateStudentProfile({
-      grade: "9",
+      grade: grade || initialGrade || "9",
       preferredLanguage: (lang || "en") as "en" | "om",
       masteryScore: percentage,
       performanceBand,
       supportSubjects,
       strongSubjects,
       diagnosticCompleted: true,
-      twinName: "EduTwin Grade 9",
+      twinName: `EduTwin Grade ${grade || initialGrade || "9"}`,
     });
 
     Object.entries(bySubject).forEach(([subject, values]) => {

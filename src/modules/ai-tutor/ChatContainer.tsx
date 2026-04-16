@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
+import { useFocusEffect } from "@react-navigation/native";
 import { useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -16,9 +17,8 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS } from "../../../shared/constants/colors";
 import {
-  fetchChatHistory,
+  fetchLatestChatHistory,
   generateAIResponseStream,
-  getChatSessionId,
   type ChatHistoryItem,
   type PersistedChatMessage,
 } from "../../../shared/services/ai-service";
@@ -59,6 +59,27 @@ const buildChatHistory = (messages: ChatMessage[]): ChatHistoryItem[] =>
       content: message.text.trim(),
     }));
 
+const RECENT_CHAT_WINDOW = 80;
+
+const dedupeMessages = (items: ChatMessage[]) => {
+  const merged = items.filter(
+    (message) => message.id !== "welcome" && message.text.trim().length > 0,
+  );
+
+  const deduped = merged.filter(
+    (message, index, arr) =>
+      index ===
+      arr.findIndex(
+        (candidate) =>
+          candidate.text === message.text &&
+          candidate.isUser === message.isUser &&
+          candidate.timestamp === message.timestamp,
+      ),
+  );
+
+  return deduped.slice(-RECENT_CHAT_WINDOW);
+};
+
 export default function ChatContainer() {
   const insets = useSafeAreaInsets();
   const tabBarHeight = useBottomTabBarHeight();
@@ -88,7 +109,6 @@ export default function ChatContainer() {
       },
     ],
   );
-  const hasHydratedHistoryRef = useRef(false);
 
   const buildWelcomeMessage = useCallback(
     (): ChatMessage => ({
@@ -118,52 +138,39 @@ export default function ChatContainer() {
     cachedChatMessages = messages;
   }, [messages]);
 
-  useEffect(() => {
-    if (hasHydratedHistoryRef.current) {
-      return;
-    }
+  useFocusEffect(
+    useCallback(() => {
+      let isMounted = true;
 
-    hasHydratedHistoryRef.current = true;
-    let isMounted = true;
+      const loadChatHistory = async () => {
+        try {
+          const latest = await fetchLatestChatHistory();
+          if (!isMounted || !latest.messages.length) return;
 
-    const loadChatHistory = async () => {
-      try {
-        const sessionId = getChatSessionId() || undefined;
-        const history = await fetchChatHistory(sessionId);
-        if (!isMounted || !history.length) return;
+          const mapped = latest.messages
+            .map(mapPersistedToChatMessage)
+            .filter((message) => message.text.trim().length > 0);
 
-        const mapped = history
-          .map(mapPersistedToChatMessage)
-          .filter((message) => message.text.trim().length > 0);
+          if (!mapped.length) return;
 
-        if (!mapped.length) return;
+          // Use persisted history as source of truth to avoid re-merging duplicates
+          // from local cache every time the screen regains focus.
+          const hydrated = [buildWelcomeMessage(), ...dedupeMessages(mapped)];
+          setMessages(hydrated);
+          cachedChatMessages = hydrated;
+          setTimeout(scrollToEnd, 0);
+        } catch (error) {
+          console.warn("Failed to load chat history:", error);
+        }
+      };
 
-        const deduped = mapped.filter(
-          (message, index, arr) =>
-            index ===
-            arr.findIndex(
-              (candidate) =>
-                candidate.text === message.text &&
-                candidate.isUser === message.isUser &&
-                candidate.timestamp === message.timestamp,
-            ),
-        );
+      void loadChatHistory();
 
-        const hydrated = [buildWelcomeMessage(), ...deduped];
-        setMessages(hydrated);
-        cachedChatMessages = hydrated;
-        setTimeout(scrollToEnd, 0);
-      } catch (error) {
-        console.warn("Failed to load chat history:", error);
-      }
-    };
-
-    loadChatHistory();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [buildWelcomeMessage]);
+      return () => {
+        isMounted = false;
+      };
+    }, [buildWelcomeMessage]),
+  );
 
   const scrollToEnd = () => {
     flatListRef.current?.scrollToEnd({ animated: true });

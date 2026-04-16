@@ -18,6 +18,8 @@ import { updateStudentProfile } from "../../../shared/store/user-store";
 export default function RegisterComponent() {
   const router = useRouter();
 
+  const isMongoObjectId = (value: string) => /^[a-f\d]{24}$/i.test(value.trim());
+
   const gradeOptions = ["9", "10", "11", "12"];
   const schoolOptions = [
     { value: "", label: "Select School" },
@@ -82,7 +84,9 @@ export default function RegisterComponent() {
         language,
         grade_level: parsedGrade,
         phone_number: normalizedPhone || undefined,
-        school_id: normalizedSchoolId || undefined,
+        school_id: isMongoObjectId(normalizedSchoolId)
+          ? normalizedSchoolId
+          : undefined,
         section: normalizedSection || undefined,
       });
 

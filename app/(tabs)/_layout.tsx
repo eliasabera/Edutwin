@@ -3,6 +3,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Tabs } from "expo-router";
 import { useEffect, useRef } from "react";
 import { Animated, Easing, Platform, StyleSheet, View } from "react-native";
+import { useHideTabBar } from "@/shared/store/ui-store";
 
 type TabIconName =
   | "chatbubbles-outline"
@@ -104,6 +105,8 @@ function TabBarIcon({ iconName, color, size, focused }: TabBarIconProps) {
 }
 
 export default function TabsLayout() {
+  const hideTabBar = useHideTabBar();
+
   return (
     <Tabs
       screenOptions={({ route }) => {
@@ -115,23 +118,25 @@ export default function TabsLayout() {
           tabBarHideOnKeyboard: true,
           tabBarActiveTintColor: COLORS.primary,
           tabBarInactiveTintColor: COLORS.textLight,
-          tabBarStyle: {
-            position: "absolute",
-            left: 14,
-            right: 14,
-            bottom: 12,
-            height: 78,
-            paddingTop: 10,
-            paddingBottom: 12,
-            paddingHorizontal: 8,
-            backgroundColor: COLORS.white,
-            borderTopWidth: 0,
-            borderRadius: 24,
-            shadowColor: "#0E234E",
-            shadowOpacity: 0.12,
-            shadowRadius: 14,
-            elevation: 10,
-          },
+          tabBarStyle: hideTabBar
+            ? { display: "none" }
+            : {
+                position: "absolute",
+                left: 14,
+                right: 14,
+                bottom: 12,
+                height: 78,
+                paddingTop: 10,
+                paddingBottom: 12,
+                paddingHorizontal: 8,
+                backgroundColor: COLORS.white,
+                borderTopWidth: 0,
+                borderRadius: 24,
+                shadowColor: "#0E234E",
+                shadowOpacity: 0.12,
+                shadowRadius: 14,
+                elevation: 10,
+              },
           tabBarItemStyle: {
             borderRadius: 18,
             marginHorizontal: 2,

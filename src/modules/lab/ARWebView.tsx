@@ -31,6 +31,7 @@ type Props = {
   topic: ArTopic;
   fullScreen?: boolean;
   transparentBackground?: boolean;
+  onSessionEnded?: () => void;
 };
 
 type ArLaunchStage = "checking-device" | "checking-model" | "launching" | "error";
@@ -107,6 +108,7 @@ export default function ARWebView({
   topic,
   fullScreen = false,
   transparentBackground = false,
+  onSessionEnded,
 }: Props) {
   const backgroundColor = transparentBackground ? "transparent" : "#F4F7FC";
   const modelUrl = topic.modelUrl || DEFAULT_HEART_MODEL_URL;
@@ -215,8 +217,12 @@ export default function ARWebView({
         appStateRef.current === "background" || appStateRef.current === "inactive";
 
       if (wasInBackground && nextState === "active" && wasExternalArOpened) {
-        setStage("error");
-        setLaunchError("AR session ended. Tap Retry AR Launch to open it again.");
+        if (onSessionEnded) {
+          onSessionEnded();
+        } else {
+          setStage("error");
+          setLaunchError("AR session ended. Tap Retry AR Launch to open it again.");
+        }
       }
 
       appStateRef.current = nextState;
@@ -225,7 +231,7 @@ export default function ARWebView({
     return () => {
       sub.remove();
     };
-  }, [wasExternalArOpened]);
+  }, [onSessionEnded, wasExternalArOpened]);
 
   return (
     <View

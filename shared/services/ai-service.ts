@@ -3,7 +3,7 @@ import { Platform } from "react-native";
 import { getStudentProfile } from "../store/user-store";
 import type { SubjectName } from "../types/domain.types";
 import { getAuthToken } from "./auth-service";
-import { syncTwinProgress } from "./gamification";
+import { classifyTutorPrompt, recordTutorInteraction, syncTwinProgress } from "./gamification";
 
 export type ChatHistoryItem = {
   role: "user" | "assistant";
@@ -65,6 +65,7 @@ const CHAT_STREAM_API_URL = `${NODE_API_BASE_URL}/api/ai/chat/stream`;
 const TEXTBOOK_ASSIST_URL = `${NODE_API_BASE_URL}/api/ai/textbook/assist`;
 const CHAT_HISTORY_URL = (sessionId: string) =>
   `${NODE_API_BASE_URL}/api/ai/sessions/${sessionId}/messages`;
+const CHAT_HISTORY_LIMIT = 80;
 const CHAT_HISTORY_CANDIDATES = [
   `${NODE_API_BASE_URL}/api/ai/sessions/latest/messages`,
   `${NODE_API_BASE_URL}/api/ai/chat/history`,
@@ -84,6 +85,7 @@ const PYTHON_TEXTBOOK_RESOURCES_URL = `${PYTHON_API_BASE_URL}/textbook/resources
 const PYTHON_TEXTBOOK_RESOURCES_8001_URL = `http://${API_HOST}:8001/textbook/resources`;
 const PYTHON_TEXTBOOK_RESOURCES_8011_URL = `http://${API_HOST}:8011/textbook/resources`;
 const TEXTBOOK_SELECTION_ASK_URL = `${NODE_API_BASE_URL}/api/ai/textbook/selection-ask`;
+const TEXTBOOK_RESOLVE_URL = `${NODE_API_BASE_URL}/api/textbooks/resolve`;
 const PYTHON_TEXTBOOK_SELECTION_ASK_URL = `${PYTHON_API_BASE_URL}/textbook/selection-ask`;
 const PYTHON_TEXTBOOK_SELECTION_ASK_8001_URL =
   `http://${API_HOST}:8001/textbook/selection-ask`;
@@ -156,8 +158,9 @@ const getChatEndpointCandidates = async (stream = false) => {
   const pythonEndpoint = `${PYTHON_API_BASE_URL}${suffix}`;
   const liquidEndpoint = `${LIQUID_FALLBACK_BASE_URL}${suffix}`;
 
-  // Always try local/LAN services first; internet reachability does not imply LAN reachability.
-  return unique([pythonEndpoint, nodeEndpoint, liquidEndpoint]);
+  // Always try the Node chat route first because it owns session/message persistence.
+  // Python remains a fallback when Node is unavailable or fails.
+  return unique([nodeEndpoint, pythonEndpoint, liquidEndpoint]);
 };
 
 const parseSessionIdFromHeaders = (response: Response) => {
@@ -297,19 +300,42 @@ const extractPersistedMessages = (payload: unknown): PersistedChatMessage[] => {
     if (Array.isArray(nestedRecord.messages)) {
       return nestedRecord.messages as PersistedChatMessage[];
     }
+    if (Array.isArray(nestedRecord.items)) {
+      return nestedRecord.items as PersistedChatMessage[];
+    }
+    if (Array.isArray(nestedRecord.docs)) {
+      return nestedRecord.docs as PersistedChatMessage[];
+    }
+  }
+
+  if (Array.isArray(record.items)) {
+    return record.items as PersistedChatMessage[];
+  }
+
+  if (Array.isArray(record.docs)) {
+    return record.docs as PersistedChatMessage[];
   }
 
   return [];
 };
 
-const getHistoryEndpointCandidates = (sessionId?: string) => {
+const getHistoryEndpointCandidates = (sessionId?: string, preferLatest = false) => {
+  const recentQuery = `page=1&limit=${CHAT_HISTORY_LIMIT}&sort=desc`;
   const endpoints = [...CHAT_HISTORY_CANDIDATES];
 
-  if (sessionId && sessionId.trim()) {
-    endpoints.unshift(CHAT_HISTORY_URL(sessionId.trim()));
+  if (preferLatest) {
+    endpoints.unshift(`${NODE_API_BASE_URL}/api/ai/sessions/latest/messages?${recentQuery}`);
   }
 
-  return unique(endpoints);
+  if (sessionId && sessionId.trim()) {
+    endpoints.unshift(`${CHAT_HISTORY_URL(sessionId.trim())}?${recentQuery}`);
+  }
+
+  const candidatesWithQuery = endpoints.map((endpoint) =>
+    endpoint.includes("?") ? `${endpoint}&${recentQuery}` : `${endpoint}?${recentQuery}`,
+  );
+
+  return unique(candidatesWithQuery);
 };
 
 const withSessionPayload = (payload: Record<string, unknown>) => {
@@ -326,6 +352,7 @@ export const generateAIResponse = async (
   history: ChatHistoryItem[] = [],
 ): Promise<string> => {
   const studentProfile = buildStudentProfilePayload();
+  const tutorSignal = classifyTutorPrompt(userPrompt);
   const payload = JSON.stringify(
     withSessionPayload({
       question: userPrompt,
@@ -358,20 +385,14 @@ export const generateAIResponse = async (
           if (isIntegrationFallbackText(data.response)) {
             continue;
           }
-          void syncTwinProgress({
-            xp_delta: 2,
-            subject,
-          });
+          recordTutorInteraction(subject, tutorSignal);
           return normalizeTutorResponse(data.response);
         }
         if (typeof data?.message === "string") {
           if (isIntegrationFallbackText(data.message)) {
             continue;
           }
-          void syncTwinProgress({
-            xp_delta: 2,
-            subject,
-          });
+          recordTutorInteraction(subject, tutorSignal);
           return normalizeTutorResponse(data.message);
         }
       } catch (error) {
@@ -393,6 +414,7 @@ export const generateAIResponseStream = async (
   history: ChatHistoryItem[] = [],
 ): Promise<string> => {
   const studentProfile = buildStudentProfilePayload();
+  const tutorSignal = classifyTutorPrompt(userPrompt);
   const payload = JSON.stringify(
     withSessionPayload({
       question: userPrompt,
@@ -464,10 +486,7 @@ export const generateAIResponseStream = async (
 
         const normalized = normalizeTutorResponse(trimmed);
 
-		void syncTwinProgress({
-			xp_delta: 2,
-			subject,
-		});
+    recordTutorInteraction(subject, tutorSignal);
 
         if (isNodeStreamEndpoint) {
           onChunk(normalized);
@@ -559,6 +578,7 @@ export type TextbookSelectionAskPayload = {
   chapter: string;
   question: string;
   selected_text: string;
+  history?: ChatHistoryItem[];
   full_name?: string;
   unit?: string;
   current_topic?: string;
@@ -591,6 +611,15 @@ export type TextbookResourceItem = {
   type: "canvas" | "ar";
   url: string;
   page?: number | null;
+};
+
+export type ResolvedTextbookData = {
+  subject: SubjectName;
+  grade_requested: number;
+  grade_served: number;
+  title: string;
+  textbook_url: string;
+  source: "database" | "catalog";
 };
 
 type SubmitPracticeAttemptPayload = {
@@ -1007,7 +1036,15 @@ export const fetchChatHistory = async (sessionId?: string) => {
 
       const messages = extractPersistedMessages(data);
       if (Array.isArray(messages) && messages.length > 0) {
-        return messages;
+        const normalized = messages
+          .filter((item) => typeof item?.message_text === "string" && item.message_text.trim().length > 0)
+          .sort((a, b) => {
+            const ta = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+            const tb = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+            return ta - tb;
+          });
+
+        return normalized.slice(-CHAT_HISTORY_LIMIT);
       }
     } catch (error) {
       lastError = error;
@@ -1019,6 +1056,67 @@ export const fetchChatHistory = async (sessionId?: string) => {
   }
 
   return [] as PersistedChatMessage[];
+};
+
+export const fetchLatestChatHistory = async () => {
+  const online = await isOnlineNow();
+  if (!online) {
+    return {
+      sessionId: null as string | null,
+      messages: [] as PersistedChatMessage[],
+    };
+  }
+
+  const endpoints = getHistoryEndpointCandidates(undefined, true);
+  let lastError: unknown = null;
+
+  for (const endpoint of endpoints) {
+    try {
+      const response = await fetch(endpoint, {
+        method: "GET",
+        headers: buildAuthHeaders(),
+      });
+
+      if (!response.ok) {
+        lastError = new Error(await readErrorMessage(response));
+        continue;
+      }
+
+      const data = await response.json();
+      const extractedSessionId = extractSessionId(data);
+      if (extractedSessionId) {
+        setChatSessionId(extractedSessionId);
+      }
+
+      const messages = extractPersistedMessages(data);
+      const normalized = Array.isArray(messages)
+        ? messages
+            .filter((item) => typeof item?.message_text === "string" && item.message_text.trim().length > 0)
+            .sort((a, b) => {
+              const ta = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+              const tb = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+              return ta - tb;
+            })
+            .slice(-CHAT_HISTORY_LIMIT)
+        : [];
+
+      return {
+        sessionId: extractedSessionId || currentChatSessionId,
+        messages: normalized,
+      };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  if (lastError) {
+    throw lastError;
+  }
+
+  return {
+    sessionId: null as string | null,
+    messages: [] as PersistedChatMessage[],
+  };
 };
 
 export const fetchTextbookAssist = async (
@@ -1165,17 +1263,17 @@ export const fetchTextbookSelectionAsk = async (
   payload: TextbookSelectionAskPayload,
 ): Promise<TextbookSelectionAskResponse> => {
   const endpointCandidates = unique([
+    TEXTBOOK_SELECTION_ASK_URL,
     PYTHON_TEXTBOOK_SELECTION_ASK_8011_URL,
     PYTHON_TEXTBOOK_SELECTION_ASK_URL,
     PYTHON_TEXTBOOK_SELECTION_ASK_8001_URL,
-    TEXTBOOK_SELECTION_ASK_URL,
   ]);
 
   let lastError: unknown = null;
 
   for (const endpoint of endpointCandidates) {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 12000);
+    const timeoutId = setTimeout(() => controller.abort(), 60000);
 
     try {
       const useNodeHeaders = endpoint === TEXTBOOK_SELECTION_ASK_URL;
@@ -1199,7 +1297,7 @@ export const fetchTextbookSelectionAsk = async (
       return {
         response:
           typeof data?.response === "string" && data.response.trim()
-            ? data.response.trim()
+            ? normalizeTutorResponse(data.response)
             : "I could not generate an answer from that selection.",
         selected_text:
           typeof data?.selected_text === "string" && data.selected_text.trim()
@@ -1223,4 +1321,59 @@ export const fetchTextbookSelectionAsk = async (
     message: "Selection ask is temporarily unavailable.",
     current_page: typeof payload.current_page === "number" ? payload.current_page : null,
   };
+};
+
+export const fetchResolvedTextbook = async (
+  subject: SubjectName,
+  grade: string | number,
+): Promise<ResolvedTextbookData | null> => {
+  const normalizedGrade = String(grade || "").trim();
+  if (!subject || !normalizedGrade) {
+    return null;
+  }
+
+  const query = `subject=${encodeURIComponent(subject)}&grade=${encodeURIComponent(
+    normalizedGrade,
+  )}`;
+
+  try {
+    const response = await fetch(`${TEXTBOOK_RESOLVE_URL}?${query}`, {
+      method: "GET",
+      headers: buildAuthHeaders(),
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const data = await response.json();
+    const record = data?.data;
+    if (!record || typeof record !== "object") {
+      return null;
+    }
+
+    const textbookUrl =
+      typeof record.textbook_url === "string" ? record.textbook_url.trim() : "";
+
+    if (!textbookUrl) {
+      return null;
+    }
+
+    return {
+      subject,
+      grade_requested:
+        typeof record.grade_requested === "number"
+          ? record.grade_requested
+          : Number(normalizedGrade),
+      grade_served:
+        typeof record.grade_served === "number"
+          ? record.grade_served
+          : Number(normalizedGrade),
+      title: typeof record.title === "string" ? record.title : "Textbook",
+      textbook_url: textbookUrl,
+      source: record.source === "database" ? "database" : "catalog",
+    };
+  } catch {
+    return null;
+  }
 };

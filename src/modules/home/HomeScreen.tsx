@@ -128,13 +128,13 @@ export default function HomeScreen() {
     100,
     Math.round((gamification.digitalTwinSignals / 8) * 100),
   );
-  const totalXp =
-    typeof studentProfile.xp === "number"
-      ? studentProfile.xp
-      : gamification.totalPracticeCompleted * 25 +
-        gamification.teacherAssessmentsCompleted * 50 +
-        unlockedAchievements.length * 10;
-  const activeStreak = studentProfile.streak ?? gamification.currentStreak;
+  const localEstimatedXp =
+    gamification.totalPracticeCompleted * 25 +
+    gamification.teacherAssessmentsCompleted * 50 +
+    gamification.aiPracticeCompleted * 2 +
+    unlockedAchievements.length * 10;
+  const totalXp = Math.max(studentProfile.xp ?? 0, localEstimatedXp);
+  const activeStreak = Math.max(studentProfile.streak ?? 0, gamification.currentStreak);
   const studentRank = Math.max(1, Math.floor(totalXp / 120) + 1);
   const supportSubjects = studentProfile.supportSubjects.join(", ") || "None";
   const strongSubjects = studentProfile.strongSubjects.join(", ") || "None";

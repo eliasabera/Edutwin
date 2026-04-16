@@ -1,11 +1,12 @@
-import Constants from "expo-constants";
 import {
   fetchTextbookResources,
   fetchTextbookSelectionAsk,
+  type ChatHistoryItem,
   type TextbookResourceItem,
 } from "@/shared/services/ai-service";
 import { useStudentProfile } from "@/shared/store/user-store";
 import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -76,9 +77,21 @@ const PHYSICS_UNIT1_RESOURCES: LearningResource[] = [
   },
 ];
 
+const BIOLOGY_HEART_RESOURCES: LearningResource[] = [
+  {
+    id: "bio-ch1-heart-ar",
+    chapter: "Chapter 1",
+    topic: "Human Circulatory System",
+    title: "Heart AR Model",
+    type: "ar",
+    url: "ar://heart-demo",
+  },
+];
+
 const HIDE_PDFJS_UI_SCRIPT = `
   (function() {
     var lastSentSelection = '';
+    var lastNonEmptySelection = '';
 
     var hide = function(selector) {
       var node = document.querySelector(selector);
@@ -110,6 +123,9 @@ const HIDE_PDFJS_UI_SCRIPT = `
         if (window.getSelection) {
           selected = String(window.getSelection().toString() || '').trim();
         }
+        if (selected) {
+          lastNonEmptySelection = selected;
+        }
         if (selected === lastSentSelection) {
           return;
         }
@@ -139,6 +155,24 @@ const HIDE_PDFJS_UI_SCRIPT = `
       setTimeout(emitSelection, 180);
     });
     setInterval(emitSelection, 600);
+
+    window.__EDUTWIN_SELECTION__ = {
+      getCurrentOrLast: function() {
+        var selected = '';
+        try {
+          if (window.getSelection) {
+            selected = String(window.getSelection().toString() || '').trim();
+          }
+        } catch (e) {
+          // noop
+        }
+        if (selected) {
+          lastNonEmptySelection = selected;
+          return selected;
+        }
+        return lastNonEmptySelection || '';
+      },
+    };
   })();
   true;
 `;
@@ -147,17 +181,21 @@ const sanitizeSelectionAnswerText = (text: string) => {
   let cleaned = String(text || "");
   cleaned = cleaned.replace(/\*+/g, "");
   cleaned = cleaned.replace(/#+/g, "");
-  cleaned = cleaned.replace(
-    /\b(?:Example|Examples|Summary|Practice\s*Question|Activity(?:\s*\d+)?)\s*:.*/i,
-    "",
-  );
-  cleaned = cleaned.replace(/\s+/g, " ").trim();
+  cleaned = cleaned.replace(/\r\n/g, "\n");
+  cleaned = cleaned.replace(/\n{3,}/g, "\n\n");
+  cleaned = cleaned
+    .split("\n")
+    .map((line) => line.trim())
+    .join("\n")
+    .replace(/[ \t]+/g, " ")
+    .trim();
   return cleaned || "I could not generate a clear answer from the selected text.";
 };
 
 export default function TextbookReaderScreen({
   lesson,
 }: TextbookReaderScreenProps) {
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const studentProfile = useStudentProfile();
   const textbookUrl = lesson?.textbookUrl?.trim();
@@ -173,8 +211,12 @@ export default function TextbookReaderScreen({
   const [showAskAiModal, setShowAskAiModal] = useState(false);
   const [selectionQuestion, setSelectionQuestion] = useState("");
   const [selectionAnswer, setSelectionAnswer] = useState("");
+  const [selectionHistory, setSelectionHistory] = useState<ChatHistoryItem[]>([]);
   const [isAskingSelection, setIsAskingSelection] = useState(false);
   const triggerScale = useRef(new Animated.Value(1)).current;
+  const webViewRef = useRef<WebView>(null);
+  const pendingSelectionSubmitRef = useRef(false);
+  const lastNonEmptySelectionRef = useRef("");
 
   const subjectName = useMemo(() => {
     const lowered = (lesson?.subject || "").toLowerCase();
@@ -236,6 +278,8 @@ export default function TextbookReaderScreen({
           setResources(remoteResources);
         } else if (requestSubject === "physics") {
           setResources(PHYSICS_UNIT1_RESOURCES);
+        } else if (requestSubject === "biology") {
+          setResources(BIOLOGY_HEART_RESOURCES);
         } else {
           setResources([]);
         }
@@ -243,6 +287,8 @@ export default function TextbookReaderScreen({
         if (!isMounted) return;
         if (requestSubject === "physics") {
           setResources(PHYSICS_UNIT1_RESOURCES);
+        } else if (requestSubject === "biology") {
+          setResources(BIOLOGY_HEART_RESOURCES);
         } else {
           setResources([]);
         }
@@ -259,15 +305,55 @@ export default function TextbookReaderScreen({
     };
   }, [requestGrade, requestSubject, textbookUrl]);
 
-  const askFromSelection = async () => {
-    const normalizedSelection = selectedTextDraft.trim();
+  const syncSelectionFromWebView = () => {
+    webViewRef.current?.injectJavaScript(`
+      (function () {
+        try {
+          var selected = '';
+          if (window.__EDUTWIN_SELECTION__ && window.__EDUTWIN_SELECTION__.getCurrentOrLast) {
+            selected = String(window.__EDUTWIN_SELECTION__.getCurrentOrLast() || '').trim();
+          } else if (window.getSelection) {
+            selected = String(window.getSelection().toString() || '').trim();
+          }
+          if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: 'TEXT_SELECTION',
+              text: selected,
+            }));
+          }
+        } catch (e) {
+          // noop
+        }
+      })();
+      true;
+    `);
+  };
+
+  const askFromSelection = async (providedSelection?: string) => {
+    const normalizedSelection = (
+      providedSelection ||
+      selectedTextDraft ||
+      selectedText ||
+      lastNonEmptySelectionRef.current
+    )
+      .trim()
+      .slice(0, 1800);
     const normalizedQuestion = selectionQuestion.trim();
+    if (!normalizedSelection) {
+      setSelectionAnswer("Please highlight textbook text first, then ask AI.");
+      return;
+    }
     if (!normalizedQuestion) {
       return;
     }
 
     setIsAskingSelection(true);
     setSelectionAnswer("");
+
+    const requestHistory =
+      normalizedSelection && normalizedSelection !== selectedText.trim()
+        ? []
+        : selectionHistory;
 
     try {
       const response = await fetchTextbookSelectionAsk({
@@ -276,6 +362,7 @@ export default function TextbookReaderScreen({
         chapter: "",
         question: normalizedQuestion,
         selected_text: normalizedSelection,
+        history: requestHistory,
         full_name:
           typeof studentProfile.fullName === "string" && studentProfile.fullName.trim()
             ? studentProfile.fullName
@@ -296,12 +383,55 @@ export default function TextbookReaderScreen({
             ? studentProfile.performanceBand
             : "unknown",
       });
-      setSelectionAnswer(sanitizeSelectionAnswerText(response.response || "No answer generated."));
+      const normalizedAnswer = sanitizeSelectionAnswerText(
+        response.response || "No answer generated.",
+      );
+      const userHistoryItem: ChatHistoryItem = {
+        role: "user",
+        content: normalizedQuestion,
+      };
+      const assistantHistoryItem: ChatHistoryItem = {
+        role: "assistant",
+        content: normalizedAnswer,
+      };
+      const nextHistory: ChatHistoryItem[] = [
+        ...requestHistory,
+        userHistoryItem,
+        assistantHistoryItem,
+      ].slice(-10);
+
+      setSelectedText(normalizedSelection);
+      lastNonEmptySelectionRef.current = normalizedSelection;
+      setSelectionAnswer(normalizedAnswer);
+      setSelectionHistory(nextHistory);
     } catch {
       setSelectionAnswer("I could not process this selection right now. Please try again.");
     } finally {
       setIsAskingSelection(false);
     }
+  };
+
+  const openResource = (item: LearningResource) => {
+    if (item.type === "ar") {
+      if (item.url.startsWith("ar://")) {
+        const modelId = item.url.replace("ar://", "").trim();
+        if (modelId) {
+          setShowResourceModal(false);
+          setActiveResource(null);
+          router.push(`/ar-view/${modelId}` as never);
+          return;
+        }
+      }
+
+      if (item.id.toLowerCase().includes("heart") || item.title.toLowerCase().includes("heart")) {
+        setShowResourceModal(false);
+        setActiveResource(null);
+        router.push("/ar-view/heart-demo" as never);
+        return;
+      }
+    }
+
+    setActiveResource(item);
   };
 
   useEffect(() => {
@@ -334,6 +464,13 @@ export default function TextbookReaderScreen({
     };
   }, [showResourceButton, triggerScale]);
 
+  useEffect(() => {
+    if (!showAskAiModal) {
+      return;
+    }
+    syncSelectionFromWebView();
+  }, [showAskAiModal]);
+
   if (!textbookUrl) {
     return (
       <View style={[styles.emptyWrap, { paddingTop: insets.top + 16 }]}>
@@ -346,6 +483,7 @@ export default function TextbookReaderScreen({
   return (
     <View style={styles.screen} pointerEvents="box-none">
       <WebView
+        ref={webViewRef}
         source={{ uri: `https://mozilla.github.io/pdf.js/web/viewer.html?file=${encodeURIComponent(viewerUrl)}` }}
         style={styles.webView}
         originWhitelist={["*"]}
@@ -359,9 +497,22 @@ export default function TextbookReaderScreen({
             }
             const nextText =
               typeof parsed?.text === "string" ? parsed.text.trim() : "";
-            setSelectedText(nextText);
-            if (!nextText) {
-              setShowAskAiModal(false);
+            // Keep the last non-empty selection. PDF.js often emits an empty
+            // selection on touch/mouse release right before pressing Ask AI.
+            if (nextText) {
+              lastNonEmptySelectionRef.current = nextText;
+              setSelectedText(nextText);
+              setSelectedTextDraft(nextText);
+              if (
+                pendingSelectionSubmitRef.current &&
+                selectionQuestion.trim() &&
+                !isAskingSelection
+              ) {
+                pendingSelectionSubmitRef.current = false;
+                setSelectedText(nextText);
+                setSelectedTextDraft(nextText);
+                void askFromSelection(nextText);
+              }
             }
           } catch {
             // ignore malformed bridge messages
@@ -394,7 +545,14 @@ export default function TextbookReaderScreen({
         <Pressable
           style={({ pressed }) => [styles.selectionAskButton, pressed && styles.selectionAskButtonPressed]}
           onPress={() => {
-            setSelectedTextDraft(selectedText);
+            syncSelectionFromWebView();
+            const prefillSelection =
+              selectedText.trim() ||
+              selectedTextDraft.trim() ||
+              lastNonEmptySelectionRef.current.trim();
+            if (prefillSelection) {
+              setSelectedTextDraft(prefillSelection);
+            }
             setShowAskAiModal(true);
           }}
         >
@@ -515,7 +673,7 @@ export default function TextbookReaderScreen({
                     <Pressable
                       key={item.id}
                       style={styles.canvasChoiceCard}
-                      onPress={() => setActiveResource(item)}
+                      onPress={() => openResource(item)}
                     >
                       <View style={styles.canvasChoiceLeft}>
                         <Ionicons
@@ -568,14 +726,13 @@ export default function TextbookReaderScreen({
 
             <ScrollView contentContainerStyle={styles.askModalContent}>
               <Text style={styles.askLabel}>Selected text</Text>
-              <TextInput
-                value={selectedTextDraft}
-                onChangeText={setSelectedTextDraft}
-                placeholder="Highlight text from the textbook, or paste/type excerpt here."
-                placeholderTextColor="#7E8EA8"
-                multiline
-                style={styles.askInput}
-              />
+              <View style={styles.selectionPreviewCard}>
+                <Text style={styles.selectionPreviewText}>
+                  {selectedTextDraft.trim()
+                    ? selectedTextDraft
+                    : "No text selected yet. Highlight the textbook question first."}
+                </Text>
+              </View>
 
               <Text style={styles.askLabel}>Your question</Text>
               <TextInput
@@ -586,13 +743,30 @@ export default function TextbookReaderScreen({
                 multiline
                 style={styles.askInput}
               />
+              <Text style={styles.askHint}>Tip: Highlight text directly in the PDF, then ask AI.</Text>
 
               <Pressable
                 onPress={() => {
-                  setSelectedText(selectedTextDraft);
-                  void askFromSelection();
+                  const submitSelection =
+                    selectedTextDraft.trim() ||
+                    selectedText.trim() ||
+                    lastNonEmptySelectionRef.current.trim();
+                  if (!submitSelection) {
+                    pendingSelectionSubmitRef.current = true;
+                    setSelectionAnswer("Capturing selected text...");
+                    syncSelectionFromWebView();
+                    return;
+                  }
+
+                  pendingSelectionSubmitRef.current = false;
+                  setSelectedTextDraft(submitSelection);
+                  setSelectedText(submitSelection);
+                  void askFromSelection(submitSelection);
                 }}
-                disabled={!selectionQuestion.trim() || isAskingSelection}
+                disabled={
+                  !selectionQuestion.trim() ||
+                  isAskingSelection
+                }
                 style={({ pressed }) => [
                   styles.askSubmitButton,
                   (!selectionQuestion.trim() || isAskingSelection) &&
@@ -887,6 +1061,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
     textAlignVertical: "top",
+  },
+  askHint: {
+    color: "#5A6C87",
+    fontSize: 12,
+    fontWeight: "600",
+    lineHeight: 17,
   },
   askSubmitButton: {
     marginTop: 4,

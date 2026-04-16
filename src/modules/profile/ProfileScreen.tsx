@@ -1,20 +1,26 @@
 import {
   fetchStudentProfile,
   mapBackendProfileToStudentProfile,
+  clearAuthToken,
   setCachedStudentProfile,
 } from "@/shared/services/auth-service";
+import { clearChatSessionId } from "@/shared/services/ai-service";
+import { resetGamificationState } from "@/shared/services/gamification";
 import {
   getStudentProfile,
+  resetStudentProfile,
   updateStudentProfile,
   useStudentProfile,
 } from "@/shared/store/user-store";
 import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import { useCallback, useState } from "react";
 import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 export default function ProfileScreen() {
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const studentProfile = useStudentProfile();
   const [isSyncing, setIsSyncing] = useState(false);
@@ -102,6 +108,15 @@ export default function ProfileScreen() {
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase() || "")
     .join("");
+
+  const handleLogout = () => {
+    clearAuthToken();
+    clearChatSessionId();
+    setCachedStudentProfile(null);
+    resetStudentProfile();
+    resetGamificationState();
+    router.replace("/(auth)/login" as never);
+  };
 
   return (
     <View style={styles.screen}>
@@ -267,6 +282,11 @@ export default function ProfileScreen() {
             </>
           )}
         </View>
+
+        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout} activeOpacity={0.85}>
+          <Ionicons name="log-out-outline" size={18} color="#B4232D" />
+          <Text style={styles.logoutButtonText}>Logout</Text>
+        </TouchableOpacity>
       </ScrollView>
     </View>
   );
@@ -443,6 +463,24 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     elevation: 1,
     gap: 8,
+  },
+  logoutButton: {
+    marginTop: 6,
+    marginBottom: 18,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: "#FFF1F2",
+    borderWidth: 1,
+    borderColor: "#FECACA",
+    borderRadius: 16,
+    paddingVertical: 14,
+  },
+  logoutButtonText: {
+    color: "#B4232D",
+    fontSize: 15,
+    fontWeight: "800",
   },
   profileSwitchRow: {
     flexDirection: "row",
