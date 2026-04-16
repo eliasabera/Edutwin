@@ -62,6 +62,8 @@ export type BackendStudentProfile = {
 	xp?: number;
 	streak?: number;
 	last_active?: string | null;
+	student_photo_url?: string;
+	twin_photo_url?: string;
 };
 
 const extractHostFromExpo = () => {
@@ -360,6 +362,14 @@ export const mapBackendProfileToStudentProfile = (
 	xp: typeof profile.xp === "number" ? profile.xp : undefined,
 	streak: typeof profile.streak === "number" ? profile.streak : undefined,
 	lastActive: profile.last_active || null,
+	studentPhotoUri:
+		typeof profile.student_photo_url === "string"
+			? profile.student_photo_url.trim() || undefined
+			: undefined,
+	twinPhotoUri:
+		typeof profile.twin_photo_url === "string"
+			? profile.twin_photo_url.trim() || undefined
+			: undefined,
 });
 
 export const loginUser = async (email: string, password: string) => {

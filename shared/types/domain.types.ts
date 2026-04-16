@@ -17,4 +17,6 @@ export interface StudentProfile {
   xp?: number;
   streak?: number;
   lastActive?: string | null;
+  studentPhotoUri?: string;
+  twinPhotoUri?: string;
 }

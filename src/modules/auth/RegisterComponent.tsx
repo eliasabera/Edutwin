@@ -3,6 +3,7 @@ import { Link, useRouter } from "expo-router";
 import React, { useState } from "react";
 import {
   Alert,
+  Image,
   ScrollView,
   StyleSheet,
   Text,
@@ -11,6 +12,10 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import {
+  STUDENT_CARTOON_AVATARS,
+  TWIN_CARTOON_AVATARS,
+} from "../../../shared/constants/avatar-presets";
 import { COLORS } from "../../../shared/constants/colors";
 import { registerStudent } from "../../../shared/services/auth-service";
 import { updateStudentProfile } from "../../../shared/store/user-store";
@@ -48,6 +53,8 @@ export default function RegisterComponent() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [studentAvatarUri, setStudentAvatarUri] = useState(STUDENT_CARTOON_AVATARS[0]);
+  const [twinAvatarUri, setTwinAvatarUri] = useState(TWIN_CARTOON_AVATARS[0]);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
 
@@ -98,6 +105,8 @@ export default function RegisterComponent() {
           | "en"
           | "om",
         twinName: `EduTwin Grade ${String(profile?.grade_level ?? parsedGrade)}`,
+        studentPhotoUri: studentAvatarUri,
+        twinPhotoUri: twinAvatarUri,
       });
 
       router.replace("/(auth)/setup" as never);
@@ -343,6 +352,50 @@ export default function RegisterComponent() {
           </TouchableOpacity>
         </View>
 
+        <View style={styles.avatarSection}>
+          <Text style={styles.avatarSectionTitle}>Student Avatar</Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.avatarRow}
+          >
+            {STUDENT_CARTOON_AVATARS.map((uri) => {
+              const selected = studentAvatarUri === uri;
+              return (
+                <TouchableOpacity
+                  key={uri}
+                  onPress={() => setStudentAvatarUri(uri)}
+                  style={[styles.avatarOption, selected && styles.avatarOptionSelected]}
+                >
+                  <Image source={{ uri }} style={styles.avatarOptionImage} />
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </View>
+
+        <View style={styles.avatarSection}>
+          <Text style={styles.avatarSectionTitle}>EduTwin Avatar</Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.avatarRow}
+          >
+            {TWIN_CARTOON_AVATARS.map((uri) => {
+              const selected = twinAvatarUri === uri;
+              return (
+                <TouchableOpacity
+                  key={uri}
+                  onPress={() => setTwinAvatarUri(uri)}
+                  style={[styles.avatarOption, selected && styles.avatarOptionSelected]}
+                >
+                  <Image source={{ uri }} style={styles.avatarOptionImage} />
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </View>
+
         {/* Email */}
         <View style={styles.inputContainer}>
           <Ionicons
@@ -512,6 +565,39 @@ const styles = StyleSheet.create({
   },
   languageChipTextActive: {
     color: COLORS.primary,
+  },
+  avatarSection: {
+    marginTop: -2,
+  },
+  avatarSectionTitle: {
+    color: COLORS.text,
+    fontSize: 13,
+    fontWeight: "700",
+    marginBottom: 8,
+  },
+  avatarRow: {
+    gap: 10,
+    paddingVertical: 2,
+  },
+  avatarOption: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    borderWidth: 2,
+    borderColor: "#D6E4FF",
+    backgroundColor: "#EEF4FF",
+    overflow: "hidden",
+  },
+  avatarOptionSelected: {
+    borderColor: COLORS.primary,
+    shadowColor: COLORS.primary,
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  avatarOptionImage: {
+    width: "100%",
+    height: "100%",
   },
   icon: { marginRight: 12 },
   input: { flex: 1, fontSize: 16, color: COLORS.text },

@@ -12,11 +12,16 @@ import {
   updateStudentProfile,
   useStudentProfile,
 } from "@/shared/store/user-store";
+import {
+  STUDENT_CARTOON_AVATARS,
+  TWIN_CARTOON_AVATARS,
+} from "@/shared/constants/avatar-presets";
 import { Ionicons } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
-import { useCallback, useState } from "react";
-import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { useCallback, useRef, useState } from "react";
+import { Alert, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 export default function ProfileScreen() {
@@ -26,6 +31,13 @@ export default function ProfileScreen() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncError, setSyncError] = useState("");
   const [activeCard, setActiveCard] = useState<"student" | "twin">("student");
+  const [isPickingPhoto, setIsPickingPhoto] = useState(false);
+  const [avatarPickerVisible, setAvatarPickerVisible] = useState(false);
+  const [avatarPickerTarget, setAvatarPickerTarget] = useState<"student" | "twin">("student");
+  const [sliderWidth, setSliderWidth] = useState(0);
+  const [pendingPhotoUri, setPendingPhotoUri] = useState("");
+  const [pendingPhotoTarget, setPendingPhotoTarget] = useState<"student" | "twin" | null>(null);
+  const sliderRef = useRef<ScrollView>(null);
 
   useFocusEffect(
     useCallback(() => {
@@ -108,6 +120,128 @@ export default function ProfileScreen() {
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase() || "")
     .join("");
+  const studentPhotoUri = studentProfile.studentPhotoUri?.trim() || "";
+  const twinPhotoUri = studentProfile.twinPhotoUri?.trim() || "";
+
+  const pickPhotoFor = async (target: "student" | "twin") => {
+    try {
+      if (isPickingPhoto) return;
+      setIsPickingPhoto(true);
+      setSyncError("");
+
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        setSyncError("Media permission is required to set a profile photo.");
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+
+      if (result.canceled || !result.assets?.length) {
+        return;
+      }
+
+      const uri = String(result.assets[0]?.uri || "").trim();
+      if (!uri) {
+        return;
+      }
+
+      setPendingPhotoTarget(target);
+      setPendingPhotoUri(uri);
+    } catch {
+      setSyncError("Could not pick image. Please try again.");
+    } finally {
+      setIsPickingPhoto(false);
+    }
+  };
+
+  const applyPendingPhoto = () => {
+    if (!pendingPhotoTarget || !pendingPhotoUri.trim()) {
+      return;
+    }
+
+    if (pendingPhotoTarget === "student") {
+      updateStudentProfile({ studentPhotoUri: pendingPhotoUri.trim() });
+    } else {
+      updateStudentProfile({ twinPhotoUri: pendingPhotoUri.trim() });
+    }
+
+    setPendingPhotoUri("");
+    setPendingPhotoTarget(null);
+  };
+
+  const cancelPendingPhoto = () => {
+    setPendingPhotoUri("");
+    setPendingPhotoTarget(null);
+  };
+
+  const openPhotoOptions = (target: "student" | "twin") => {
+    const hasPhoto = target === "student" ? Boolean(studentPhotoUri) : Boolean(twinPhotoUri);
+    const targetLabel = target === "student" ? "Student" : "EduTwin";
+
+    Alert.alert(`${targetLabel} photo`, "Choose an option", [
+      {
+        text: hasPhoto ? "Change photo" : "Add photo",
+        onPress: () => {
+          void pickPhotoFor(target);
+        },
+      },
+      {
+        text: "Choose cartoon avatar",
+        onPress: () => {
+          setAvatarPickerTarget(target);
+          setAvatarPickerVisible(true);
+        },
+      },
+      ...(hasPhoto
+        ? [
+            {
+              text: "Delete photo",
+              style: "destructive" as const,
+              onPress: () => clearPhotoFor(target),
+            },
+          ]
+        : []),
+      {
+        text: "Cancel",
+        style: "cancel",
+      },
+    ]);
+  };
+
+  const clearPhotoFor = (target: "student" | "twin") => {
+    if (target === "student") {
+      updateStudentProfile({ studentPhotoUri: undefined });
+      return;
+    }
+    updateStudentProfile({ twinPhotoUri: undefined });
+  };
+
+  const choosePresetAvatar = (target: "student" | "twin", uri: string) => {
+    if (target === "student") {
+      updateStudentProfile({ studentPhotoUri: uri });
+    } else {
+      updateStudentProfile({ twinPhotoUri: uri });
+    }
+    setAvatarPickerVisible(false);
+  };
+
+  const presetAvatarList =
+    avatarPickerTarget === "student" ? STUDENT_CARTOON_AVATARS : TWIN_CARTOON_AVATARS;
+
+  const scrollToCard = (target: "student" | "twin") => {
+    setActiveCard(target);
+    if (!sliderWidth) return;
+    sliderRef.current?.scrollTo({
+      x: target === "student" ? 0 : sliderWidth,
+      animated: true,
+    });
+  };
 
   const handleLogout = () => {
     clearAuthToken();
@@ -150,15 +284,24 @@ export default function ProfileScreen() {
           )}
 
           <View style={styles.heroTopRow}>
-            <View style={styles.studentAvatarWrap}>
+            <TouchableOpacity
+              style={styles.studentAvatarWrap}
+              onPress={() => openPhotoOptions("student")}
+              activeOpacity={0.85}
+              disabled={isPickingPhoto}
+            >
               <View style={styles.studentAvatarOuter}>
                 <View style={styles.studentAvatarInner}>
-                  <Text style={styles.studentAvatarText}>
-                    {studentInitials}
-                  </Text>
+                  {studentPhotoUri ? (
+                    <Image source={{ uri: studentPhotoUri }} style={styles.studentAvatarImage} />
+                  ) : (
+                    <Text style={styles.studentAvatarText}>
+                      {studentInitials}
+                    </Text>
+                  )}
                 </View>
               </View>
-            </View>
+            </TouchableOpacity>
 
             <View style={styles.heroTextBlock}>
               <View style={styles.heroBadge}>
@@ -180,21 +323,7 @@ export default function ProfileScreen() {
 
         <View style={styles.sectionCard}>
           <View style={styles.profileSwitchRow}>
-            <TouchableOpacity
-              style={styles.profileSwitchItem}
-              onPress={() => setActiveCard("student")}
-            >
-              <View
-                style={[
-                  styles.profileSwitchCircle,
-                  activeCard === "student" && styles.profileSwitchCircleActive,
-                ]}
-              >
-                <Image
-                  source={require("../../../assets/images/icon.png")}
-                  style={styles.profileSwitchImage}
-                />
-              </View>
+            <TouchableOpacity style={styles.profileSwitchItem} onPress={() => scrollToCard("student")}>
               <Text
                 style={[
                   styles.profileSwitchText,
@@ -205,21 +334,7 @@ export default function ProfileScreen() {
               </Text>
             </TouchableOpacity>
 
-            <TouchableOpacity
-              style={styles.profileSwitchItem}
-              onPress={() => setActiveCard("twin")}
-            >
-              <View
-                style={[
-                  styles.profileSwitchCircle,
-                  activeCard === "twin" && styles.profileSwitchCircleActive,
-                ]}
-              >
-                <Image
-                  source={require("../../../assets/images/android-icon-foreground.png")}
-                  style={styles.profileSwitchImage}
-                />
-              </View>
+            <TouchableOpacity style={styles.profileSwitchItem} onPress={() => scrollToCard("twin")}>
               <Text
                 style={[
                   styles.profileSwitchText,
@@ -231,8 +346,45 @@ export default function ProfileScreen() {
             </TouchableOpacity>
           </View>
 
-          {activeCard === "student" ? (
-            <>
+          <ScrollView
+            ref={sliderRef}
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            onLayout={(event) => {
+              const width = event.nativeEvent.layout.width;
+              if (width > 0 && width !== sliderWidth) {
+                setSliderWidth(width);
+              }
+            }}
+            onMomentumScrollEnd={(event) => {
+              const width = sliderWidth || event.nativeEvent.layoutMeasurement.width;
+              if (!width) return;
+              const nextIndex = Math.round(event.nativeEvent.contentOffset.x / width);
+              setActiveCard(nextIndex <= 0 ? "student" : "twin");
+            }}
+          >
+            <View style={[styles.sliderPage, sliderWidth ? { width: sliderWidth } : null]}>
+              <View style={styles.pageAvatarRow}>
+                <View style={styles.profileSwitchCircle}>
+                  {studentPhotoUri ? (
+                    <Image source={{ uri: studentPhotoUri }} style={styles.profileSwitchImage} />
+                  ) : (
+                    <Image
+                      source={require("../../../assets/images/icon.png")}
+                      style={styles.profileSwitchImage}
+                    />
+                  )}
+                </View>
+                <TouchableOpacity
+                  style={styles.avatarEditBadge}
+                  onPress={() => openPhotoOptions("student")}
+                  disabled={isPickingPhoto}
+                >
+                  <Ionicons name="camera" size={14} color="#FFFFFF" />
+                </TouchableOpacity>
+              </View>
+
               <View style={styles.sectionTitleRow}>
                 <Ionicons name="school-outline" size={18} color="#0B5FFF" />
                 <Text style={styles.sectionTitle}>Student Profile</Text>
@@ -240,9 +392,7 @@ export default function ProfileScreen() {
 
               <View style={styles.infoRow}>
                 <Text style={styles.infoLabel}>Full Name</Text>
-                <Text style={styles.infoValue}>
-                  {studentProfile.fullName || "Not set"}
-                </Text>
+                <Text style={styles.infoValue}>{studentProfile.fullName || "Not set"}</Text>
               </View>
               <View style={styles.infoRow}>
                 <Text style={styles.infoLabel}>Grade</Text>
@@ -250,9 +400,7 @@ export default function ProfileScreen() {
               </View>
               <View style={styles.infoRow}>
                 <Text style={styles.infoLabel}>Language</Text>
-                <Text style={styles.infoValue}>
-                  {studentProfile.preferredLanguage.toUpperCase()}
-                </Text>
+                <Text style={styles.infoValue}>{studentProfile.preferredLanguage.toUpperCase()}</Text>
               </View>
               <View style={styles.infoRow}>
                 <Text style={styles.infoLabel}>Learning Level</Text>
@@ -264,9 +412,29 @@ export default function ProfileScreen() {
                       : "On-track learner"}
                 </Text>
               </View>
-            </>
-          ) : (
-            <>
+            </View>
+
+            <View style={[styles.sliderPage, sliderWidth ? { width: sliderWidth } : null]}>
+              <View style={styles.pageAvatarRow}>
+                <View style={styles.profileSwitchCircle}>
+                  {twinPhotoUri ? (
+                    <Image source={{ uri: twinPhotoUri }} style={styles.profileSwitchImage} />
+                  ) : (
+                    <Image
+                      source={require("../../../assets/images/android-icon-foreground.png")}
+                      style={styles.profileSwitchImage}
+                    />
+                  )}
+                </View>
+                <TouchableOpacity
+                  style={styles.avatarEditBadge}
+                  onPress={() => openPhotoOptions("twin")}
+                  disabled={isPickingPhoto}
+                >
+                  <Ionicons name="camera" size={14} color="#FFFFFF" />
+                </TouchableOpacity>
+              </View>
+
               <View style={styles.infoRow}>
                 <Text style={styles.infoLabel}>Twin Name</Text>
                 <Text style={styles.infoValue}>{studentProfile.twinName}</Text>
@@ -279,8 +447,13 @@ export default function ProfileScreen() {
                 <Text style={styles.infoLabel}>Strong Subjects</Text>
                 <Text style={styles.infoValue}>{strongSubjects}</Text>
               </View>
-            </>
-          )}
+            </View>
+          </ScrollView>
+
+          <View style={styles.sliderDotsRow}>
+            <View style={[styles.sliderDot, activeCard === "student" && styles.sliderDotActive]} />
+            <View style={[styles.sliderDot, activeCard === "twin" && styles.sliderDotActive]} />
+          </View>
         </View>
 
         <TouchableOpacity style={styles.logoutButton} onPress={handleLogout} activeOpacity={0.85}>
@@ -288,6 +461,82 @@ export default function ProfileScreen() {
           <Text style={styles.logoutButtonText}>Logout</Text>
         </TouchableOpacity>
       </ScrollView>
+
+      <Modal
+        visible={avatarPickerVisible}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setAvatarPickerVisible(false)}
+      >
+        <Pressable
+          style={styles.avatarPickerBackdrop}
+          onPress={() => setAvatarPickerVisible(false)}
+        >
+          <Pressable style={styles.avatarPickerCard} onPress={() => {}}>
+            <View style={styles.avatarPickerHeader}>
+              <Text style={styles.avatarPickerTitle}>
+                {avatarPickerTarget === "student" ? "Choose Student Avatar" : "Choose EduTwin Avatar"}
+              </Text>
+              <TouchableOpacity
+                onPress={() => setAvatarPickerVisible(false)}
+                style={styles.avatarPickerClose}
+              >
+                <Ionicons name="close" size={18} color="#1A202C" />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.avatarGrid}>
+              {presetAvatarList.map((uri) => {
+                const selected =
+                  avatarPickerTarget === "student"
+                    ? studentPhotoUri === uri
+                    : twinPhotoUri === uri;
+                return (
+                  <TouchableOpacity
+                    key={uri}
+                    onPress={() => choosePresetAvatar(avatarPickerTarget, uri)}
+                    style={[styles.avatarGridItem, selected && styles.avatarGridItemSelected]}
+                  >
+                    <Image source={{ uri }} style={styles.avatarGridImage} />
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal
+        visible={Boolean(pendingPhotoUri)}
+        animationType="fade"
+        transparent
+        onRequestClose={cancelPendingPhoto}
+      >
+        <Pressable style={styles.avatarPickerBackdrop} onPress={cancelPendingPhoto}>
+          <Pressable style={styles.avatarPickerCard} onPress={() => {}}>
+            <Text style={styles.avatarPickerTitle}>Use this photo?</Text>
+            {pendingPhotoUri ? (
+              <Image source={{ uri: pendingPhotoUri }} style={styles.pendingPreviewImage} />
+            ) : null}
+            <View style={styles.pendingActionRow}>
+              <TouchableOpacity
+                style={styles.pendingBackButton}
+                onPress={cancelPendingPhoto}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.pendingBackText}>Back</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.pendingUseButton}
+                onPress={applyPendingPhoto}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.pendingUseText}>Use Photo</Text>
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -403,6 +652,11 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: "800",
   },
+  studentAvatarImage: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 32,
+  },
   heroTextBlock: {
     flex: 1,
   },
@@ -493,7 +747,8 @@ const styles = StyleSheet.create({
   },
   profileSwitchItem: {
     alignItems: "center",
-    gap: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
   },
   profileSwitchCircle: {
     width: 64,
@@ -505,13 +760,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
-  },
-  profileSwitchCircleActive: {
-    borderColor: "#0B5FFF",
-    shadowColor: "#0B5FFF",
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 3,
   },
   profileSwitchImage: {
     width: "100%",
@@ -525,6 +773,45 @@ const styles = StyleSheet.create({
   },
   profileSwitchTextActive: {
     color: "#0B5FFF",
+  },
+  sliderPage: {
+    paddingTop: 4,
+  },
+  pageAvatarRow: {
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 10,
+  },
+  avatarEditBadge: {
+    position: "absolute",
+    right: "38%",
+    bottom: -2,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: "#0B5FFF",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "#FFFFFF",
+  },
+  sliderDotsRow: {
+    marginTop: 6,
+    marginBottom: 2,
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 6,
+  },
+  sliderDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: "#C8D8F5",
+  },
+  sliderDotActive: {
+    width: 16,
+    backgroundColor: "#0B5FFF",
   },
   sectionTitleRow: {
     flexDirection: "row",
@@ -558,5 +845,98 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "700",
     lineHeight: 20,
+  },
+  avatarPickerBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(5, 11, 21, 0.46)",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 22,
+  },
+  avatarPickerCard: {
+    width: "100%",
+    borderRadius: 18,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E1E9F8",
+    padding: 14,
+    gap: 12,
+  },
+  avatarPickerHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  avatarPickerTitle: {
+    color: "#1A202C",
+    fontSize: 16,
+    fontWeight: "800",
+  },
+  avatarPickerClose: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#EEF4FF",
+  },
+  avatarGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  avatarGridItem: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    borderWidth: 2,
+    borderColor: "#D6E4FF",
+    overflow: "hidden",
+    backgroundColor: "#EEF4FF",
+  },
+  avatarGridItemSelected: {
+    borderColor: "#0B5FFF",
+  },
+  avatarGridImage: {
+    width: "100%",
+    height: "100%",
+  },
+  pendingPreviewImage: {
+    width: "100%",
+    aspectRatio: 1,
+    borderRadius: 14,
+    backgroundColor: "#EEF4FF",
+  },
+  pendingActionRow: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  pendingBackButton: {
+    flex: 1,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#D6E4FF",
+    backgroundColor: "#F4F8FF",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 11,
+  },
+  pendingBackText: {
+    color: "#35507E",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  pendingUseButton: {
+    flex: 1,
+    borderRadius: 12,
+    backgroundColor: "#0B5FFF",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 11,
+  },
+  pendingUseText: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "700",
   },
 });

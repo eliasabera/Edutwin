@@ -26,7 +26,7 @@ export const updateStudentProfile = (updates: Partial<StudentProfile>) => {
   studentProfile = {
     ...studentProfile,
     ...updates,
-    twinName: updates.twinName ?? "EduTwin Grade 9",
+    twinName: updates.twinName ?? studentProfile.twinName ?? "EduTwin Grade 9",
   };
   emitChange();
 };
