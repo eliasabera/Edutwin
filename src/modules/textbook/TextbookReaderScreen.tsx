@@ -1,7 +1,7 @@
+import Constants from "expo-constants";
 import {
   fetchTextbookResources,
   fetchTextbookSelectionAsk,
-  type ChatHistoryItem,
   type TextbookResourceItem,
 } from "@/shared/services/ai-service";
 import { useStudentProfile } from "@/shared/store/user-store";
@@ -26,6 +26,7 @@ import { WebView } from "react-native-webview";
 type ReaderLesson = {
   subject: "Biology" | "Chemistry" | "Physics" | "Math";
   textbookUrl: string;
+  grade?: string;
 };
 
 type TextbookReaderScreenProps = {
@@ -34,64 +35,9 @@ type TextbookReaderScreenProps = {
 
 type LearningResource = TextbookResourceItem;
 
-const PHYSICS_UNIT1_RESOURCES: LearningResource[] = [
-  {
-    id: "ch1-newton-canvas",
-    chapter: "Chapter 1",
-    topic: "Definition and Nature of Physics",
-    title: "Newton Canvas Model",
-    type: "canvas",
-    url: "https://chemistry3d-view-for-final-year-project-1.onrender.com/physics/chapter1/Definition%20and%20Nature%20of%20Physics.html?model=newton",
-  },
-  {
-    id: "ch1-faraday-canvas",
-    chapter: "Chapter 1",
-    topic: "Definition and Nature of Physics",
-    title: "Faraday Canvas Model",
-    type: "canvas",
-    url: "https://chemistry3d-view-for-final-year-project-1.onrender.com/physics/chapter1/Definition%20and%20Nature%20of%20Physics.html?model=faraday",
-  },
-  {
-    id: "ch1-figure3-canvas",
-    chapter: "Chapter 1",
-    topic: "Definition and Nature of Physics",
-    title: "Figure 3 Canvas Model",
-    type: "canvas",
-    url: "https://chemistry3d-view-for-final-year-project-1.onrender.com/physics/chapter1/figur-3.html",
-  },
-  {
-    id: "ch1-newton-ar",
-    chapter: "Chapter 1",
-    topic: "Definition and Nature of Physics",
-    title: "Newton AR Model",
-    type: "ar",
-    url: "https://chemistry3d-view-for-final-year-project-1.onrender.com/physics/chapter1/Definition%20and%20Nature%20of%20Physics.html?model=newton",
-  },
-  {
-    id: "ch1-faraday-ar",
-    chapter: "Chapter 1",
-    topic: "Definition and Nature of Physics",
-    title: "Faraday AR Model",
-    type: "ar",
-    url: "https://chemistry3d-view-for-final-year-project-1.onrender.com/physics/chapter1/Definition%20and%20Nature%20of%20Physics.html?model=faraday",
-  },
-];
-
-const BIOLOGY_HEART_RESOURCES: LearningResource[] = [
-  {
-    id: "bio-ch1-heart-ar",
-    chapter: "Chapter 1",
-    topic: "Human Circulatory System",
-    title: "Heart AR Model",
-    type: "ar",
-    url: "ar://heart-demo",
-  },
-];
-
 const HIDE_PDFJS_UI_SCRIPT = `
   (function() {
     var lastSentSelection = '';
-    var lastNonEmptySelection = '';
 
     var hide = function(selector) {
       var node = document.querySelector(selector);
@@ -123,9 +69,6 @@ const HIDE_PDFJS_UI_SCRIPT = `
         if (window.getSelection) {
           selected = String(window.getSelection().toString() || '').trim();
         }
-        if (selected) {
-          lastNonEmptySelection = selected;
-        }
         if (selected === lastSentSelection) {
           return;
         }
@@ -155,24 +98,6 @@ const HIDE_PDFJS_UI_SCRIPT = `
       setTimeout(emitSelection, 180);
     });
     setInterval(emitSelection, 600);
-
-    window.__EDUTWIN_SELECTION__ = {
-      getCurrentOrLast: function() {
-        var selected = '';
-        try {
-          if (window.getSelection) {
-            selected = String(window.getSelection().toString() || '').trim();
-          }
-        } catch (e) {
-          // noop
-        }
-        if (selected) {
-          lastNonEmptySelection = selected;
-          return selected;
-        }
-        return lastNonEmptySelection || '';
-      },
-    };
   })();
   true;
 `;
@@ -181,16 +106,32 @@ const sanitizeSelectionAnswerText = (text: string) => {
   let cleaned = String(text || "");
   cleaned = cleaned.replace(/\*+/g, "");
   cleaned = cleaned.replace(/#+/g, "");
+  cleaned = cleaned.replace(
+    /\b(?:Example|Examples|Summary|Practice\s*Question|Activity(?:\s*\d+)?)\s*:.*/i,
+    "",
+  );
+
   cleaned = cleaned.replace(/\r\n/g, "\n");
-  cleaned = cleaned.replace(/\n{3,}/g, "\n\n");
   cleaned = cleaned
     .split("\n")
     .map((line) => line.trim())
+    .filter((line, index, lines) => line || (index > 0 && lines[index - 1] !== ""))
     .join("\n")
-    .replace(/[ \t]+/g, " ")
     .trim();
+
+  // If the backend returns one long sentence block, split it into readable lines.
+  if (!cleaned.includes("\n") && cleaned.length > 220) {
+    cleaned = cleaned.replace(/([.!?])\s+(?=[A-Z0-9])/g, "$1\n");
+  }
+
   return cleaned || "I could not generate a clear answer from the selected text.";
 };
+
+const toAnswerParagraphs = (text: string): string[] =>
+  String(text || "")
+    .split(/\n{2,}|\n/)
+    .map((part) => part.trim())
+    .filter(Boolean);
 
 export default function TextbookReaderScreen({
   lesson,
@@ -205,18 +146,17 @@ export default function TextbookReaderScreen({
   const [resources, setResources] = useState<LearningResource[]>([]);
   const [isLoadingResources, setIsLoadingResources] = useState(false);
   const [chapterFilter, setChapterFilter] = useState("All");
-  const [topicFilter, setTopicFilter] = useState("All");
   const [selectedText, setSelectedText] = useState("");
   const [selectedTextDraft, setSelectedTextDraft] = useState("");
   const [showAskAiModal, setShowAskAiModal] = useState(false);
   const [selectionQuestion, setSelectionQuestion] = useState("");
   const [selectionAnswer, setSelectionAnswer] = useState("");
-  const [selectionHistory, setSelectionHistory] = useState<ChatHistoryItem[]>([]);
   const [isAskingSelection, setIsAskingSelection] = useState(false);
   const triggerScale = useRef(new Animated.Value(1)).current;
-  const webViewRef = useRef<WebView>(null);
-  const pendingSelectionSubmitRef = useRef(false);
-  const lastNonEmptySelectionRef = useRef("");
+  const answerParagraphs = useMemo(
+    () => toAnswerParagraphs(selectionAnswer),
+    [selectionAnswer],
+  );
 
   const subjectName = useMemo(() => {
     const lowered = (lesson?.subject || "").toLowerCase();
@@ -226,26 +166,65 @@ export default function TextbookReaderScreen({
     return "physics";
   }, [lesson?.subject]);
 
-  const chapterOptions = useMemo(
-    () => ["All", ...Array.from(new Set(resources.map((item) => item.chapter)))],
-    [resources],
+  const chapterOptions = useMemo(() => {
+    const chapterSortValue = (chapter: string) => {
+      const match = String(chapter || "").match(/chapter\s*(\d+)/i);
+      if (!match) return Number.MAX_SAFE_INTEGER;
+      return Number(match[1]);
+    };
+
+    const sortedChapters = Array.from(new Set(resources.map((item) => item.chapter))).sort(
+      (a, b) => {
+        const numDiff = chapterSortValue(a) - chapterSortValue(b);
+        if (numDiff !== 0) return numDiff;
+        return a.localeCompare(b);
+      },
+    );
+
+    return ["All", ...sortedChapters];
+  }, [resources]);
+
+  const filteredResources = useMemo(
+    () =>
+      resources.filter(
+        (item) => chapterFilter === "All" || item.chapter === chapterFilter,
+      ),
+    [chapterFilter, resources],
   );
 
-  const topicOptions = useMemo(() => {
-    const base =
-      chapterFilter === "All"
-        ? resources
-        : resources.filter((item) => item.chapter === chapterFilter);
-    return ["All", ...Array.from(new Set(base.map((item) => item.topic)))];
-  }, [chapterFilter, resources]);
+  const groupedResources = useMemo(() => {
+    const grouped: Record<string, { canvas: LearningResource[]; ar: LearningResource[] }> = {};
 
-  const filteredResources = useMemo(() => {
-    return resources.filter((item) => {
-      const chapterMatch = chapterFilter === "All" || item.chapter === chapterFilter;
-      const topicMatch = topicFilter === "All" || item.topic === topicFilter;
-      return chapterMatch && topicMatch;
-    });
-  }, [chapterFilter, resources, topicFilter]);
+    const chapterSortValue = (chapter: string) => {
+      const match = String(chapter || "").match(/chapter\s*(\d+)/i);
+      if (!match) return Number.MAX_SAFE_INTEGER;
+      return Number(match[1]);
+    };
+
+    for (const item of filteredResources) {
+      if (!grouped[item.chapter]) {
+        grouped[item.chapter] = { canvas: [], ar: [] };
+      }
+
+      if (item.type === "ar") {
+        grouped[item.chapter].ar.push(item);
+      } else {
+        grouped[item.chapter].canvas.push(item);
+      }
+    }
+
+    return Object.entries(grouped)
+      .map(([chapter, entries]) => ({
+        chapter,
+        canvas: [...entries.canvas].sort((a, b) => a.title.localeCompare(b.title)),
+        ar: [...entries.ar].sort((a, b) => a.title.localeCompare(b.title)),
+      }))
+      .sort((a, b) => {
+        const numDiff = chapterSortValue(a.chapter) - chapterSortValue(b.chapter);
+        if (numDiff !== 0) return numDiff;
+        return a.chapter.localeCompare(b.chapter);
+      });
+  }, [filteredResources]);
 
   const showResourceButton = Boolean(textbookUrl);
   const requestSubject =
@@ -255,7 +234,7 @@ export default function TextbookReaderScreen({
     subjectName === "math"
       ? subjectName
       : "physics";
-  const requestGrade = String(studentProfile.grade || "9").trim() || "9";
+  const requestGrade = String(lesson?.grade || studentProfile.grade || "9").trim() || "9";
 
   useEffect(() => {
     let isMounted = true;
@@ -276,22 +255,15 @@ export default function TextbookReaderScreen({
 
         if (remoteResources.length > 0) {
           setResources(remoteResources);
-        } else if (requestSubject === "physics") {
-          setResources(PHYSICS_UNIT1_RESOURCES);
-        } else if (requestSubject === "biology") {
-          setResources(BIOLOGY_HEART_RESOURCES);
+          setChapterFilter("All");
         } else {
           setResources([]);
+          setChapterFilter("All");
         }
       } catch {
         if (!isMounted) return;
-        if (requestSubject === "physics") {
-          setResources(PHYSICS_UNIT1_RESOURCES);
-        } else if (requestSubject === "biology") {
-          setResources(BIOLOGY_HEART_RESOURCES);
-        } else {
-          setResources([]);
-        }
+        setResources([]);
+        setChapterFilter("All");
       } finally {
         if (isMounted) {
           setIsLoadingResources(false);
@@ -305,55 +277,15 @@ export default function TextbookReaderScreen({
     };
   }, [requestGrade, requestSubject, textbookUrl]);
 
-  const syncSelectionFromWebView = () => {
-    webViewRef.current?.injectJavaScript(`
-      (function () {
-        try {
-          var selected = '';
-          if (window.__EDUTWIN_SELECTION__ && window.__EDUTWIN_SELECTION__.getCurrentOrLast) {
-            selected = String(window.__EDUTWIN_SELECTION__.getCurrentOrLast() || '').trim();
-          } else if (window.getSelection) {
-            selected = String(window.getSelection().toString() || '').trim();
-          }
-          if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
-            window.ReactNativeWebView.postMessage(JSON.stringify({
-              type: 'TEXT_SELECTION',
-              text: selected,
-            }));
-          }
-        } catch (e) {
-          // noop
-        }
-      })();
-      true;
-    `);
-  };
-
-  const askFromSelection = async (providedSelection?: string) => {
-    const normalizedSelection = (
-      providedSelection ||
-      selectedTextDraft ||
-      selectedText ||
-      lastNonEmptySelectionRef.current
-    )
-      .trim()
-      .slice(0, 1800);
+  const askFromSelection = async () => {
+    const normalizedSelection = selectedTextDraft.trim();
     const normalizedQuestion = selectionQuestion.trim();
-    if (!normalizedSelection) {
-      setSelectionAnswer("Please highlight textbook text first, then ask AI.");
-      return;
-    }
     if (!normalizedQuestion) {
       return;
     }
 
     setIsAskingSelection(true);
     setSelectionAnswer("");
-
-    const requestHistory =
-      normalizedSelection && normalizedSelection !== selectedText.trim()
-        ? []
-        : selectionHistory;
 
     try {
       const response = await fetchTextbookSelectionAsk({
@@ -362,7 +294,6 @@ export default function TextbookReaderScreen({
         chapter: "",
         question: normalizedQuestion,
         selected_text: normalizedSelection,
-        history: requestHistory,
         full_name:
           typeof studentProfile.fullName === "string" && studentProfile.fullName.trim()
             ? studentProfile.fullName
@@ -383,27 +314,7 @@ export default function TextbookReaderScreen({
             ? studentProfile.performanceBand
             : "unknown",
       });
-      const normalizedAnswer = sanitizeSelectionAnswerText(
-        response.response || "No answer generated.",
-      );
-      const userHistoryItem: ChatHistoryItem = {
-        role: "user",
-        content: normalizedQuestion,
-      };
-      const assistantHistoryItem: ChatHistoryItem = {
-        role: "assistant",
-        content: normalizedAnswer,
-      };
-      const nextHistory: ChatHistoryItem[] = [
-        ...requestHistory,
-        userHistoryItem,
-        assistantHistoryItem,
-      ].slice(-10);
-
-      setSelectedText(normalizedSelection);
-      lastNonEmptySelectionRef.current = normalizedSelection;
-      setSelectionAnswer(normalizedAnswer);
-      setSelectionHistory(nextHistory);
+      setSelectionAnswer(sanitizeSelectionAnswerText(response.response || "No answer generated."));
     } catch {
       setSelectionAnswer("I could not process this selection right now. Please try again.");
     } finally {
@@ -464,13 +375,6 @@ export default function TextbookReaderScreen({
     };
   }, [showResourceButton, triggerScale]);
 
-  useEffect(() => {
-    if (!showAskAiModal) {
-      return;
-    }
-    syncSelectionFromWebView();
-  }, [showAskAiModal]);
-
   if (!textbookUrl) {
     return (
       <View style={[styles.emptyWrap, { paddingTop: insets.top + 16 }]}>
@@ -483,7 +387,6 @@ export default function TextbookReaderScreen({
   return (
     <View style={styles.screen} pointerEvents="box-none">
       <WebView
-        ref={webViewRef}
         source={{ uri: `https://mozilla.github.io/pdf.js/web/viewer.html?file=${encodeURIComponent(viewerUrl)}` }}
         style={styles.webView}
         originWhitelist={["*"]}
@@ -497,22 +400,9 @@ export default function TextbookReaderScreen({
             }
             const nextText =
               typeof parsed?.text === "string" ? parsed.text.trim() : "";
-            // Keep the last non-empty selection. PDF.js often emits an empty
-            // selection on touch/mouse release right before pressing Ask AI.
-            if (nextText) {
-              lastNonEmptySelectionRef.current = nextText;
-              setSelectedText(nextText);
-              setSelectedTextDraft(nextText);
-              if (
-                pendingSelectionSubmitRef.current &&
-                selectionQuestion.trim() &&
-                !isAskingSelection
-              ) {
-                pendingSelectionSubmitRef.current = false;
-                setSelectedText(nextText);
-                setSelectedTextDraft(nextText);
-                void askFromSelection(nextText);
-              }
+            setSelectedText(nextText);
+            if (!nextText) {
+              setShowAskAiModal(false);
             }
           } catch {
             // ignore malformed bridge messages
@@ -532,6 +422,7 @@ export default function TextbookReaderScreen({
             <Pressable
               style={({ pressed }) => [styles.circleTrigger, pressed && styles.circleTriggerPressed]}
               onPress={() => {
+                setChapterFilter("All");
                 setShowResourceModal(true);
               }}
             >
@@ -545,14 +436,7 @@ export default function TextbookReaderScreen({
         <Pressable
           style={({ pressed }) => [styles.selectionAskButton, pressed && styles.selectionAskButtonPressed]}
           onPress={() => {
-            syncSelectionFromWebView();
-            const prefillSelection =
-              selectedText.trim() ||
-              selectedTextDraft.trim() ||
-              lastNonEmptySelectionRef.current.trim();
-            if (prefillSelection) {
-              setSelectedTextDraft(prefillSelection);
-            }
+            setSelectedTextDraft(selectedText);
             setShowAskAiModal(true);
           }}
         >
@@ -624,10 +508,7 @@ export default function TextbookReaderScreen({
                   {chapterOptions.map((option) => (
                     <Pressable
                       key={option}
-                      onPress={() => {
-                        setChapterFilter(option);
-                        setTopicFilter("All");
-                      }}
+                      onPress={() => setChapterFilter(option)}
                       style={[
                         styles.filterChip,
                         chapterFilter === option && styles.filterChipActive,
@@ -645,51 +526,59 @@ export default function TextbookReaderScreen({
                   ))}
                 </View>
 
-                <Text style={styles.filterLabel}>Topic</Text>
-                <View style={styles.filterRow}>
-                  {topicOptions.map((option) => (
-                    <Pressable
-                      key={option}
-                      onPress={() => setTopicFilter(option)}
-                      style={[
-                        styles.filterChip,
-                        topicFilter === option && styles.filterChipActive,
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.filterChipText,
-                          topicFilter === option && styles.filterChipTextActive,
-                        ]}
-                      >
-                        {option}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </View>
+                {groupedResources.length > 0 ? (
+                  groupedResources.map((group) => (
+                    <View key={group.chapter} style={styles.chapterGroupCard}>
+                      <Text style={styles.chapterGroupTitle}>{group.chapter}</Text>
 
-                {filteredResources.length > 0 ? (
-                  filteredResources.map((item) => (
-                    <Pressable
-                      key={item.id}
-                      style={styles.canvasChoiceCard}
-                      onPress={() => openResource(item)}
-                    >
-                      <View style={styles.canvasChoiceLeft}>
-                        <Ionicons
-                          name={item.type === "ar" ? "scan-outline" : "cube-outline"}
-                          size={18}
-                          color="#0B5FFF"
-                        />
-                        <View>
-                          <Text style={styles.canvasChoiceTitle}>{item.title}</Text>
-                          <Text style={styles.canvasChoiceSubtitle}>
-                            {item.chapter} • {item.topic} • {item.type.toUpperCase()}
-                          </Text>
-                        </View>
-                      </View>
-                      <Ionicons name="chevron-forward" size={18} color="#0B5FFF" />
-                    </Pressable>
+                      <Text style={styles.groupTypeTitle}>Canvas</Text>
+                      {group.canvas.length > 0 ? (
+                        group.canvas.map((item) => (
+                          <Pressable
+                            key={item.id}
+                            style={styles.canvasChoiceCard}
+                            onPress={() => openResource(item)}
+                          >
+                            <View style={styles.canvasChoiceLeft}>
+                              <Ionicons name="cube-outline" size={18} color="#0B5FFF" />
+                              <View>
+                                <Text style={styles.canvasChoiceTitle}>{item.title}</Text>
+                                <Text style={styles.canvasChoiceSubtitle}>
+                                  {item.topic} • CANVAS
+                                </Text>
+                              </View>
+                            </View>
+                            <Ionicons name="chevron-forward" size={18} color="#0B5FFF" />
+                          </Pressable>
+                        ))
+                      ) : (
+                        <Text style={styles.groupEmptyText}>No canvas models in this chapter.</Text>
+                      )}
+
+                      <Text style={styles.groupTypeTitle}>AR</Text>
+                      {group.ar.length > 0 ? (
+                        group.ar.map((item) => (
+                          <Pressable
+                            key={item.id}
+                            style={styles.canvasChoiceCard}
+                            onPress={() => openResource(item)}
+                          >
+                            <View style={styles.canvasChoiceLeft}>
+                              <Ionicons name="scan-outline" size={18} color="#0B5FFF" />
+                              <View>
+                                <Text style={styles.canvasChoiceTitle}>{item.title}</Text>
+                                <Text style={styles.canvasChoiceSubtitle}>
+                                  {item.topic} • AR
+                                </Text>
+                              </View>
+                            </View>
+                            <Ionicons name="chevron-forward" size={18} color="#0B5FFF" />
+                          </Pressable>
+                        ))
+                      ) : (
+                        <Text style={styles.groupEmptyText}>No AR models in this chapter.</Text>
+                      )}
+                    </View>
                   ))
                 ) : (
                   <View style={styles.emptyFilterState}>
@@ -726,13 +615,14 @@ export default function TextbookReaderScreen({
 
             <ScrollView contentContainerStyle={styles.askModalContent}>
               <Text style={styles.askLabel}>Selected text</Text>
-              <View style={styles.selectionPreviewCard}>
-                <Text style={styles.selectionPreviewText}>
-                  {selectedTextDraft.trim()
-                    ? selectedTextDraft
-                    : "No text selected yet. Highlight the textbook question first."}
-                </Text>
-              </View>
+              <TextInput
+                value={selectedTextDraft}
+                onChangeText={setSelectedTextDraft}
+                placeholder="Highlight text from the textbook, or paste/type excerpt here."
+                placeholderTextColor="#7E8EA8"
+                multiline
+                style={styles.askInput}
+              />
 
               <Text style={styles.askLabel}>Your question</Text>
               <TextInput
@@ -743,30 +633,13 @@ export default function TextbookReaderScreen({
                 multiline
                 style={styles.askInput}
               />
-              <Text style={styles.askHint}>Tip: Highlight text directly in the PDF, then ask AI.</Text>
 
               <Pressable
                 onPress={() => {
-                  const submitSelection =
-                    selectedTextDraft.trim() ||
-                    selectedText.trim() ||
-                    lastNonEmptySelectionRef.current.trim();
-                  if (!submitSelection) {
-                    pendingSelectionSubmitRef.current = true;
-                    setSelectionAnswer("Capturing selected text...");
-                    syncSelectionFromWebView();
-                    return;
-                  }
-
-                  pendingSelectionSubmitRef.current = false;
-                  setSelectedTextDraft(submitSelection);
-                  setSelectedText(submitSelection);
-                  void askFromSelection(submitSelection);
+                  setSelectedText(selectedTextDraft);
+                  void askFromSelection();
                 }}
-                disabled={
-                  !selectionQuestion.trim() ||
-                  isAskingSelection
-                }
+                disabled={!selectionQuestion.trim() || isAskingSelection}
                 style={({ pressed }) => [
                   styles.askSubmitButton,
                   (!selectionQuestion.trim() || isAskingSelection) &&
@@ -782,7 +655,22 @@ export default function TextbookReaderScreen({
               {selectionAnswer ? (
                 <View style={styles.answerCard}>
                   <Text style={styles.askLabel}>AI answer</Text>
-                  <Text style={styles.answerText}>{selectionAnswer}</Text>
+                  <ScrollView
+                    style={styles.answerScroll}
+                    contentContainerStyle={styles.answerScrollContent}
+                    nestedScrollEnabled
+                    showsVerticalScrollIndicator
+                  >
+                    {answerParagraphs.length > 0 ? (
+                      answerParagraphs.map((paragraph, index) => (
+                        <Text key={`answer-${index}`} style={styles.answerText}>
+                          {paragraph}
+                        </Text>
+                      ))
+                    ) : (
+                      <Text style={styles.answerText}>{selectionAnswer}</Text>
+                    )}
+                  </ScrollView>
                 </View>
               ) : null}
             </ScrollView>
@@ -897,6 +785,31 @@ const styles = StyleSheet.create({
     color: "#4E6284",
     fontSize: 12,
     fontWeight: "600",
+  },
+  chapterGroupCard: {
+    borderWidth: 1,
+    borderColor: "#D4E3FA",
+    borderRadius: 14,
+    backgroundColor: "#F9FBFF",
+    padding: 12,
+    gap: 8,
+  },
+  chapterGroupTitle: {
+    color: "#102443",
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  groupTypeTitle: {
+    color: "#27446E",
+    fontSize: 12,
+    fontWeight: "800",
+    marginTop: 4,
+  },
+  groupEmptyText: {
+    color: "#5A6C87",
+    fontSize: 12,
+    fontWeight: "700",
+    marginBottom: 2,
   },
   filterLabel: {
     marginTop: 4,
@@ -1062,12 +975,6 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     textAlignVertical: "top",
   },
-  askHint: {
-    color: "#5A6C87",
-    fontSize: 12,
-    fontWeight: "600",
-    lineHeight: 17,
-  },
   askSubmitButton: {
     marginTop: 4,
     borderRadius: 10,
@@ -1095,10 +1002,17 @@ const styles = StyleSheet.create({
     padding: 12,
     gap: 6,
   },
+  answerScroll: {
+    maxHeight: 230,
+  },
+  answerScrollContent: {
+    gap: 10,
+    paddingBottom: 2,
+  },
   answerText: {
     color: "#1D2B45",
-    fontSize: 13,
-    fontWeight: "600",
-    lineHeight: 19,
+    fontSize: 14,
+    fontWeight: "500",
+    lineHeight: 22,
   },
 });

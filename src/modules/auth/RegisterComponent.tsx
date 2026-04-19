@@ -17,7 +17,7 @@ import {
     TWIN_CARTOON_AVATARS,
 } from "../../../shared/constants/avatar-presets";
 import { COLORS } from "../../../shared/constants/colors";
-import { registerStudent } from "../../../shared/services/auth-service";
+import { registerStudent, saveStudentProfile } from "../../../shared/services/auth-service";
 import { updateStudentProfile } from "../../../shared/store/user-store";
 
 export default function RegisterComponent() {
@@ -104,6 +104,15 @@ export default function RegisterComponent() {
         preferredLanguage: (profile?.language === "om" ? "om" : "en") as
           | "en"
           | "om",
+        twinName: `EduTwin Grade ${String(profile?.grade_level ?? parsedGrade)}`,
+        studentPhotoUri: studentAvatarUri,
+        twinPhotoUri: twinAvatarUri,
+      });
+
+      await saveStudentProfile({
+        fullName: profile?.full_name || normalizedName,
+        grade: String(profile?.grade_level ?? parsedGrade),
+        preferredLanguage: (profile?.language === "om" ? "om" : "en") as "en" | "om",
         twinName: `EduTwin Grade ${String(profile?.grade_level ?? parsedGrade)}`,
         studentPhotoUri: studentAvatarUri,
         twinPhotoUri: twinAvatarUri,

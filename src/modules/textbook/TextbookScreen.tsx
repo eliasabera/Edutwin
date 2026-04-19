@@ -1,15 +1,18 @@
-import { fetchResolvedTextbook } from "@/shared/services/ai-service";
-import { setHideTabBar } from "@/shared/store/ui-store";
+import {
+  fetchResolvedTextbook,
+  type ResolvedTextbookData,
+} from "@/shared/services/ai-service";
+import { setHideSidebar, setHideTabBar } from "@/shared/store/ui-store";
 import { useStudentProfile } from "@/shared/store/user-store";
 import TextbookReaderScreen from "@/src/modules/textbook/TextbookReaderScreen";
 import { Ionicons } from "@expo/vector-icons";
 import React, { useEffect, useMemo, useState } from "react";
 import {
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    View,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -23,6 +26,7 @@ type Unit = {
 type ActiveLesson = {
   subject: Subject;
   textbookUrl: string;
+  grade: string;
 };
 
 const SUBJECTS: Subject[] = ["Biology", "Chemistry", "Physics", "Math"];
@@ -108,15 +112,17 @@ export default function TextbookScreen() {
   const insets = useSafeAreaInsets();
   const studentProfile = useStudentProfile();
   const [activeLesson, setActiveLesson] = useState<ActiveLesson | null>(null);
-  const [resolvedTextbookUrls, setResolvedTextbookUrls] = useState<
-    Partial<Record<Subject, string>>
+  const [resolvedTextbooks, setResolvedTextbooks] = useState<
+    Partial<Record<Subject, ResolvedTextbookData | null>>
   >({});
 
   useEffect(() => {
     setHideTabBar(Boolean(activeLesson));
+    setHideSidebar(Boolean(activeLesson));
 
     return () => {
       setHideTabBar(false);
+      setHideSidebar(false);
     };
   }, [activeLesson]);
 
@@ -185,17 +191,17 @@ export default function TextbookScreen() {
       const entries = await Promise.all(
         SUBJECTS.map(async (subject) => {
           const resolved = await fetchResolvedTextbook(mapping[subject], currentGrade);
-          return [subject, resolved?.textbook_url || ""] as const;
+          return [subject, resolved] as const;
         }),
       );
 
       if (!isMounted) return;
 
-      setResolvedTextbookUrls(
-        entries.reduce((acc, [subject, url]) => {
-          acc[subject] = url;
+      setResolvedTextbooks(
+        entries.reduce((acc, [subject, resolved]) => {
+          acc[subject] = resolved || null;
           return acc;
-        }, {} as Partial<Record<Subject, string>>),
+        }, {} as Partial<Record<Subject, ResolvedTextbookData | null>>),
       );
     };
 
@@ -207,12 +213,17 @@ export default function TextbookScreen() {
   }, [studentProfile.grade]);
 
   const handleSelectSubject = (subject: Subject) => {
-    const resolvedUrl = Object.prototype.hasOwnProperty.call(resolvedTextbookUrls, subject)
-      ? resolvedTextbookUrls[subject] || ""
-      : SUBJECT_TEXTBOOK_URLS[subject];
+    const resolved = Object.prototype.hasOwnProperty.call(resolvedTextbooks, subject)
+      ? resolvedTextbooks[subject] || null
+      : null;
+
+    const resolvedUrl = resolved?.textbook_url || SUBJECT_TEXTBOOK_URLS[subject];
+    const resolvedGrade = String(resolved?.grade_served || studentProfile.grade || "9").trim() || "9";
+
     setActiveLesson({
       subject,
       textbookUrl: resolvedUrl,
+      grade: resolvedGrade,
     });
   };
 
@@ -284,13 +295,6 @@ export default function TextbookScreen() {
                       {entry.subject === "Math" ? "Mathematics" : entry.subject}
                     </Text>
                   </View>
-                  {entry.isSupport || entry.isStrong ? (
-                    <View style={styles.statusChip}>
-                      <Text style={styles.statusChipText}>
-                        {entry.isSupport ? "Support" : "Strong"}
-                      </Text>
-                    </View>
-                  ) : null}
                 </View>
 
                 <View style={[styles.subjectImageFrame, { borderColor: accent }]}>
@@ -304,6 +308,16 @@ export default function TextbookScreen() {
                     />
                   </View>
                 </View>
+
+                {entry.isSupport || entry.isStrong ? (
+                  <View style={styles.statusChipBottomWrap}>
+                    <View style={styles.statusChip}>
+                      <Text style={styles.statusChipText}>
+                        {entry.isSupport ? "Support" : "Strong"}
+                      </Text>
+                    </View>
+                  </View>
+                ) : null}
               </Pressable>
             );
           })}
@@ -350,7 +364,7 @@ const styles = StyleSheet.create({
   },
   screen: {
     flex: 1,
-    backgroundColor: "#F4F7FC",
+    backgroundColor: "#FFFFFF",
   },
   bgGlowBlue: {
     position: "absolute",
@@ -359,7 +373,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     top: -70,
     left: -90,
-    backgroundColor: "rgba(11, 95, 255, 0.16)",
+    backgroundColor: "transparent",
   },
   bgGlowGold: {
     position: "absolute",
@@ -368,7 +382,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     bottom: 170,
     right: -70,
-    backgroundColor: "rgba(255, 150, 0, 0.14)",
+    backgroundColor: "transparent",
   },
   bgGlowSky: {
     position: "absolute",
@@ -377,7 +391,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     top: "45%",
     left: "36%",
-    backgroundColor: "rgba(30, 144, 255, 0.08)",
+    backgroundColor: "transparent",
   },
   container: {
     flex: 1,
@@ -448,10 +462,11 @@ const styles = StyleSheet.create({
   subjectCardTopRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
     gap: 6,
   },
   subjectTitleWrap: {
+    flex: 1,
+    minWidth: 0,
     flexDirection: "row",
     alignItems: "center",
     gap: 7,
@@ -467,9 +482,14 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(11, 95, 255, 0.08)",
   },
   subjectCardTitle: {
+    flex: 1,
     color: "#1A202C",
     fontWeight: "800",
     fontSize: 15,
+  },
+  statusChipBottomWrap: {
+    marginTop: 2,
+    alignItems: "flex-start",
   },
   statusChip: {
     borderRadius: 999,

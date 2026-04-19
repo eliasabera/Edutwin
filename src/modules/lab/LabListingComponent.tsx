@@ -1,7 +1,10 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
+  ActivityIndicator,
+  Modal,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -9,7 +12,12 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { WebView } from "react-native-webview";
 import { COLORS } from "../../../shared/constants/colors";
+import {
+  fetchAllCanvasLabResources,
+  type LabCanvasResource,
+} from "../../../shared/services/ai-service";
 import { getArTopics } from "../../../shared/services/ar-service";
 
 type SubjectKey = "biology" | "chemistry" | "physics" | "math";
@@ -20,9 +28,12 @@ type LabItem = {
   category: "Biology" | "Chemistry" | "Physics" | "Math";
   chapter: string;
   icon: string;
-  color: string;
   desc: string;
+  url: string;
 };
+
+const HOME_PRIMARY = "#0B5FFF";
+const HOME_ACCENT = "#FF9600";
 
 const SUBJECT_ORDER: SubjectKey[] = ["biology", "chemistry", "physics", "math"];
 
@@ -33,67 +44,120 @@ const SUBJECT_TITLE: Record<SubjectKey, string> = {
   math: "Math",
 };
 
-const LABS: LabItem[] = [
-  {
-    id: "boyles_law",
-    title: "Boyle's Law",
-    category: "Physics",
-    chapter: "Physics Unit 1",
-    icon: "flask-outline",
-    color: "#FF5722",
-    desc: "Explore the relationship between Pressure and Volume in a closed container.",
-  },
-  {
-    id: "projectile_motion",
-    title: "Projectile Motion",
-    category: "Physics",
-    chapter: "Physics Unit 2",
-    icon: "basketball-outline",
-    color: "#2196F3",
-    desc: "Launch objects and study parabolic trajectories under gravity.",
-  },
-  {
-    id: "mitosis",
-    title: "Cell Division",
-    category: "Biology",
-    chapter: "Biology Unit 1",
-    icon: "aperture-outline",
-    color: "#4CAF50",
-    desc: "Visualize the stages of Mitosis in 3D.",
-  },
-];
+const SUBJECT_ICON: Record<SubjectKey, string> = {
+  biology: "leaf-outline",
+  chemistry: "flask-outline",
+  physics: "flash-outline",
+  math: "calculator-outline",
+};
+
+const toCategory = (subject: SubjectKey): LabItem["category"] => {
+  if (subject === "biology") return "Biology";
+  if (subject === "chemistry") return "Chemistry";
+  if (subject === "physics") return "Physics";
+  return "Math";
+};
 
 const toSubjectKey = (value: string): SubjectKey =>
   value.toLowerCase() as SubjectKey;
+
+const chapterNumber = (value: string): number => {
+  const match = String(value || "").match(/\d+/);
+  return match ? Number.parseInt(match[0], 10) : Number.POSITIVE_INFINITY;
+};
+
+const compareChapterAsc = (a: string, b: string): number => {
+  const aNumber = chapterNumber(a);
+  const bNumber = chapterNumber(b);
+  if (aNumber !== bNumber) {
+    return aNumber - bNumber;
+  }
+  return a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
+};
+
+const compareTextAsc = (a: string, b: string): number =>
+  a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
 
 export default function LabListingComponent() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const arTopics = getArTopics();
+  const [canvasResources, setCanvasResources] = useState<LabItem[]>([]);
+  const [isLoadingCanvas, setIsLoadingCanvas] = useState(true);
+  const [activeCanvasUrl, setActiveCanvasUrl] = useState<string | null>(null);
   const [selectedChapterBySubject, setSelectedChapterBySubject] = useState<
     Record<SubjectKey, string>
   >({
-    biology: "All",
-    chemistry: "All",
-    physics: "All",
-    math: "All",
+    biology: "",
+    chemistry: "",
+    physics: "",
+    math: "",
   });
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadCanvasResources = async () => {
+      setIsLoadingCanvas(true);
+      try {
+        const fetched = await fetchAllCanvasLabResources();
+        if (!isMounted) return;
+
+        const mapped = fetched.map((item: LabCanvasResource) => {
+          const subjectKey = toSubjectKey(item.subject);
+          return {
+            id: item.id,
+            title: item.title,
+            category: toCategory(subjectKey),
+            chapter: item.chapter,
+            icon: SUBJECT_ICON[subjectKey],
+            desc: item.topic,
+            url: item.url,
+          } as LabItem;
+        });
+
+        setCanvasResources(mapped);
+      } finally {
+        if (isMounted) {
+          setIsLoadingCanvas(false);
+        }
+      }
+    };
+
+    void loadCanvasResources();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const sections = useMemo(() => {
     return SUBJECT_ORDER.map((subject) => {
-      const canvasItems = LABS.filter(
-        (lab) => toSubjectKey(lab.category) === subject,
-      );
-      const arItems = arTopics.filter((topic) => topic.subject === subject);
-      const chapters = [
-        "All",
-        ...Array.from(
-          new Set([
-            ...canvasItems.map((item) => item.chapter),
-            ...arItems.map((item) => item.chapter),
-          ]),
-        ),
-      ];
+      const canvasItems = canvasResources
+        .filter((lab) => toSubjectKey(lab.category) === subject)
+        .sort((a, b) => {
+          const chapterOrder = compareChapterAsc(a.chapter, b.chapter);
+          if (chapterOrder !== 0) {
+            return chapterOrder;
+          }
+          return compareTextAsc(a.title, b.title);
+        });
+
+      const arItems = arTopics
+        .filter((topic) => topic.subject === subject)
+        .sort((a, b) => {
+          const chapterOrder = compareChapterAsc(a.chapter, b.chapter);
+          if (chapterOrder !== 0) {
+            return chapterOrder;
+          }
+          return compareTextAsc(a.topic, b.topic);
+        });
+
+      const chapters = Array.from(
+        new Set([
+          ...canvasItems.map((item) => item.chapter),
+          ...arItems.map((item) => item.chapter),
+        ]),
+      ).sort(compareChapterAsc);
 
       return {
         subject,
@@ -101,13 +165,11 @@ export default function LabListingComponent() {
         arItems,
         chapters,
       };
-    }).filter(
-      (section) => section.canvasItems.length > 0 || section.arItems.length > 0,
-    );
-  }, [arTopics]);
+    });
+  }, [arTopics, canvasResources]);
 
-  const openSimulation = (simId: string) => {
-    router.push(`/simulation/${simId}`);
+  const openSimulation = (url: string) => {
+    setActiveCanvasUrl(url);
   };
 
   const openArModel = (modelId: string) => {
@@ -149,7 +211,7 @@ export default function LabListingComponent() {
           <View style={styles.heroMetaPill}>
             <Ionicons name="layers-outline" size={14} color="#0B5FFF" />
             <Text style={styles.heroMetaText}>
-              {sections.length} subjects ready
+              {sections.length} subjects
             </Text>
           </View>
         </View>
@@ -157,20 +219,23 @@ export default function LabListingComponent() {
         {sections.map((section) => (
           <View key={section.subject} style={styles.subjectCard}>
             {(() => {
-              const selectedChapter =
-                selectedChapterBySubject[section.subject] ?? "All";
-              const filteredCanvas =
-                selectedChapter === "All"
-                  ? section.canvasItems
-                  : section.canvasItems.filter(
-                      (item) => item.chapter === selectedChapter,
-                    );
-              const filteredAr =
-                selectedChapter === "All"
-                  ? section.arItems
-                  : section.arItems.filter(
-                      (item) => item.chapter === selectedChapter,
-                    );
+              const selectedChapterCandidate =
+                selectedChapterBySubject[section.subject] ?? "";
+              const selectedChapter = section.chapters.includes(
+                selectedChapterCandidate,
+              )
+                ? selectedChapterCandidate
+                : (section.chapters[0] ?? "");
+              const filteredCanvas = selectedChapter
+                ? section.canvasItems.filter(
+                    (item) => item.chapter === selectedChapter,
+                  )
+                : section.canvasItems;
+              const filteredAr = selectedChapter
+                ? section.arItems.filter(
+                    (item) => item.chapter === selectedChapter,
+                  )
+                : section.arItems;
 
               return (
                 <>
@@ -225,37 +290,32 @@ export default function LabListingComponent() {
                     <Text style={styles.modelBlockTitle}>Canvas Models</Text>
                     {filteredCanvas.length === 0 ? (
                       <Text style={styles.emptyText}>
-                        No canvas models yet.
+                        {isLoadingCanvas ? "Loading canvas models..." : "No canvas models yet."}
                       </Text>
                     ) : (
                       filteredCanvas.map((item) => (
                         <TouchableOpacity
                           key={item.id}
                           style={styles.canvasCard}
-                          onPress={() => openSimulation(item.id)}
+                          onPress={() => openSimulation(item.url)}
                           activeOpacity={0.9}
                         >
                           <View
                             style={[
                               styles.iconBox,
-                              {
-                                backgroundColor: `${item.color}18`,
-                                borderColor: `${item.color}40`,
-                              },
+                              styles.iconBoxBlue,
                             ]}
                           >
                             <Ionicons
                               name={item.icon as any}
                               size={28}
-                              color={item.color}
+                              color={HOME_PRIMARY}
                             />
                           </View>
 
                           <View style={styles.info}>
                             <View style={styles.topRow}>
-                              <Text
-                                style={[styles.category, { color: item.color }]}
-                              >
+                              <Text style={styles.category}>
                                 CANVAS
                               </Text>
                               <Ionicons
@@ -327,6 +387,41 @@ export default function LabListingComponent() {
           </View>
         ))}
       </ScrollView>
+
+      <Modal
+        visible={Boolean(activeCanvasUrl)}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setActiveCanvasUrl(null)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modalCard, { paddingTop: insets.top + 8 }]}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Canvas Model</Text>
+              <Pressable
+                onPress={() => setActiveCanvasUrl(null)}
+                style={styles.modalCloseButton}
+              >
+                <Ionicons name="close" size={20} color="#1A202C" />
+              </Pressable>
+            </View>
+            {activeCanvasUrl ? (
+              <WebView
+                source={{ uri: activeCanvasUrl }}
+                style={styles.modalWebView}
+                originWhitelist={["*"]}
+                startInLoadingState
+                renderLoading={() => (
+                  <View style={styles.loaderWrap}>
+                    <ActivityIndicator size="small" color="#0B5FFF" />
+                    <Text style={styles.loaderText}>Opening canvas model...</Text>
+                  </View>
+                )}
+              />
+            ) : null}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -334,7 +429,7 @@ export default function LabListingComponent() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F4F7FC",
+    backgroundColor: "#FFFFFF",
     overflow: "hidden",
   },
   bgGlowBlue: {
@@ -344,7 +439,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     top: -50,
     left: -70,
-    backgroundColor: "rgba(11, 95, 255, 0.16)",
+    backgroundColor: "transparent",
   },
   bgGlowGold: {
     position: "absolute",
@@ -353,7 +448,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     bottom: 120,
     right: -90,
-    backgroundColor: "rgba(255, 150, 0, 0.14)",
+    backgroundColor: "transparent",
   },
   bgGlowSky: {
     position: "absolute",
@@ -362,7 +457,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     top: "42%",
     left: "34%",
-    backgroundColor: "rgba(30, 144, 255, 0.08)",
+    backgroundColor: "transparent",
   },
   content: {
     paddingHorizontal: 18,
@@ -523,6 +618,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginRight: 14,
   },
+  iconBoxBlue: {
+    backgroundColor: "#E7F0FF",
+    borderColor: "#C8DCF9",
+  },
   info: {
     flex: 1,
   },
@@ -535,6 +634,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "800",
     letterSpacing: 0.6,
+    color: HOME_ACCENT,
   },
   labTitle: {
     fontSize: 17,
@@ -602,5 +702,55 @@ const styles = StyleSheet.create({
     color: "white",
     fontSize: 12,
     fontWeight: "800",
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(3, 10, 20, 0.5)",
+    justifyContent: "flex-end",
+  },
+  modalCard: {
+    height: "88%",
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    backgroundColor: "#FFFFFF",
+    overflow: "hidden",
+  },
+  modalHeader: {
+    height: 52,
+    paddingHorizontal: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderBottomWidth: 1,
+    borderBottomColor: "#E3ECF8",
+  },
+  modalTitle: {
+    color: "#102443",
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  modalCloseButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#EEF4FD",
+  },
+  modalWebView: {
+    flex: 1,
+    backgroundColor: "#FFFFFF",
+  },
+  loaderWrap: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: "#FFFFFF",
+  },
+  loaderText: {
+    color: "#35507E",
+    fontSize: 13,
+    fontWeight: "600",
   },
 });

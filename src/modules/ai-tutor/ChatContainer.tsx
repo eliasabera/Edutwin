@@ -407,14 +407,14 @@ export default function ChatContainer() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F4F7FC",
+    backgroundColor: "#FFFFFF",
   },
   content: {
     flex: 1,
   },
   backgroundLayer: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "#F4F7FC",
+    backgroundColor: "#FFFFFF",
   },
   bgOrbOne: {
     position: "absolute",
@@ -423,7 +423,7 @@ const styles = StyleSheet.create({
     width: 180,
     height: 180,
     borderRadius: 90,
-    backgroundColor: "rgba(11, 95, 255, 0.16)",
+    backgroundColor: "transparent",
     opacity: 0.6,
   },
   bgOrbTwo: {
@@ -433,7 +433,7 @@ const styles = StyleSheet.create({
     width: 220,
     height: 220,
     borderRadius: 110,
-    backgroundColor: "rgba(255, 150, 0, 0.14)",
+    backgroundColor: "transparent",
     opacity: 0.62,
   },
   bgOrbThree: {
@@ -443,7 +443,7 @@ const styles = StyleSheet.create({
     width: 140,
     height: 140,
     borderRadius: 70,
-    backgroundColor: "rgba(30, 144, 255, 0.08)",
+    backgroundColor: "transparent",
   },
   listContent: {
     paddingHorizontal: 16,

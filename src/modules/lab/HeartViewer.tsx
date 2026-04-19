@@ -221,7 +221,7 @@ export default function HeartViewer() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F4F7FC",
+    backgroundColor: "#FFFFFF",
   },
   webView: {
     flex: 1,

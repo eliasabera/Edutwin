@@ -1,4 +1,5 @@
 import { COLORS } from "@/shared/constants/colors";
+import { hydrateAuthToken } from "@/shared/services/auth-service";
 import { Ionicons } from "@expo/vector-icons";
 import { useFonts } from "expo-font";
 import { Stack, usePathname, useRouter } from "expo-router";
@@ -19,6 +20,7 @@ import {
   SafeAreaProvider,
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
+import { useHideSidebar } from "@/shared/store/ui-store";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -48,6 +50,7 @@ function RootLayoutContent() {
   const radialProgress = useRef(new Animated.Value(0)).current;
   const menuPositionRef = useRef({ x: 18, y: initialMenuY });
   const [menuAnchor, setMenuAnchor] = useState({ x: 18, y: initialMenuY });
+  const hideSidebar = useHideSidebar();
   const menuPositionInitializedRef = useRef(false);
   useFonts({}); // Add fonts here if needed
 
@@ -184,7 +187,7 @@ function RootLayoutContent() {
     "/profile",
     "/practice-hub",
   ];
-  const showSidebar = shellRoutes.includes(pathname);
+  const showSidebar = shellRoutes.includes(pathname) && !hideSidebar;
   const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
 
   const freeLeft = menuAnchor.x - MENU_MARGIN;
@@ -222,6 +225,7 @@ function RootLayoutContent() {
   useEffect(() => {
     async function prepare() {
       try {
+        await hydrateAuthToken();
         // Mock DB/Auth loading delay
         await new Promise((resolve) => setTimeout(resolve, 1000));
       } catch (e) {
@@ -358,6 +362,7 @@ function RootLayoutContent() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
+    backgroundColor: COLORS.white,
   },
   menuButton: {
     position: "absolute",

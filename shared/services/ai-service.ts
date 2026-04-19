@@ -81,6 +81,8 @@ const PYTHON_TEXTBOOK_ASSIST_URL = `${PYTHON_API_BASE_URL}/textbook/assist`;
 const PYTHON_TEXTBOOK_ASSIST_8001_URL = `http://${API_HOST}:8001/textbook/assist`;
 const PYTHON_TEXTBOOK_ASSIST_8011_URL = `http://${API_HOST}:8011/textbook/assist`;
 const TEXTBOOK_RESOURCES_URL = `${NODE_API_BASE_URL}/api/ai/textbook/resources`;
+const VIRTUAL_LAB_RESOURCES_URL = `${NODE_API_BASE_URL}/api/virtual-lab-resources`;
+const CANVAS_MODEL_HOST = "fyp3d-view.onrender.com";
 const PYTHON_TEXTBOOK_RESOURCES_URL = `${PYTHON_API_BASE_URL}/textbook/resources`;
 const PYTHON_TEXTBOOK_RESOURCES_8001_URL = `http://${API_HOST}:8001/textbook/resources`;
 const PYTHON_TEXTBOOK_RESOURCES_8011_URL = `http://${API_HOST}:8011/textbook/resources`;
@@ -118,6 +120,18 @@ const unique = (items: string[]) => {
     seen.add(item);
     return true;
   });
+};
+
+const normalizeCanvasUrl = (url: string, type: "canvas" | "ar"): string => {
+  const trimmed = String(url || "").trim();
+  if (!trimmed || type !== "canvas") {
+    return trimmed;
+  }
+
+  return trimmed.replace(
+    /https?:\/\/threed-view-for-final-year-project\.onrender\.com/gi,
+    `https://${CANVAS_MODEL_HOST}`,
+  );
 };
 
 const connectTimeoutMs = 2500;
@@ -620,6 +634,15 @@ export type ResolvedTextbookData = {
   title: string;
   textbook_url: string;
   source: "database" | "catalog";
+};
+
+export type LabCanvasResource = {
+  id: string;
+  subject: SubjectName;
+  chapter: string;
+  title: string;
+  topic: string;
+  url: string;
 };
 
 type SubmitPracticeAttemptPayload = {
@@ -1185,6 +1208,76 @@ export const fetchTextbookAssist = async (
 export const fetchTextbookResources = async (
   payload: TextbookResourcesPayload,
 ): Promise<TextbookResourceItem[]> => {
+  const backendQuery = new URLSearchParams({
+    subject: payload.subject,
+    grade: payload.grade,
+  });
+
+  if (payload.chapter?.trim()) {
+    backendQuery.set("chapter", payload.chapter.trim());
+  }
+
+  try {
+    const response = await fetch(`${VIRTUAL_LAB_RESOURCES_URL}?${backendQuery.toString()}`, {
+      method: "GET",
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      const rawItems = Array.isArray(data?.resources)
+        ? data.resources
+        : Array.isArray(data?.data)
+          ? data.data
+          : [];
+
+      const mappedItems = rawItems
+        .map((item: unknown, index: number) => {
+          if (!item || typeof item !== "object") {
+            return null;
+          }
+
+          const record = item as Record<string, unknown>;
+          const type = String(record.type || record.interaction_type || "").toLowerCase();
+          const url =
+            typeof record.url === "string"
+              ? record.url.trim()
+              : typeof record.resource_url === "string"
+                ? record.resource_url.trim()
+                : "";
+
+          if ((type !== "canvas" && type !== "ar") || !url) {
+            return null;
+          }
+
+          return {
+            id:
+              (typeof record.id === "string" && record.id.trim()) ||
+              (typeof record._id === "string" && record._id.trim()) ||
+              `resource-${index + 1}`,
+            chapter:
+              (typeof record.chapter === "string" && record.chapter.trim()) ||
+              "General",
+            topic:
+              (typeof record.topic === "string" && record.topic.trim()) ||
+              "General",
+            title:
+              (typeof record.title === "string" && record.title.trim()) ||
+              `${type.toUpperCase()} model`,
+            type: type as "canvas" | "ar",
+            url: normalizeCanvasUrl(url, type as "canvas" | "ar"),
+            page: typeof record.page === "number" ? record.page : null,
+          };
+        })
+        .filter(Boolean) as TextbookResourceItem[];
+
+      if (mappedItems.length > 0) {
+        return mappedItems;
+      }
+    }
+  } catch {
+    // Fall back to the legacy AI/Python endpoints below.
+  }
+
   const endpointCandidates = unique([
     PYTHON_TEXTBOOK_RESOURCES_8011_URL,
     PYTHON_TEXTBOOK_RESOURCES_URL,
@@ -1217,21 +1310,31 @@ export const fetchTextbookResources = async (
       }
 
       const data = await response.json();
-      const rawItems = Array.isArray(data?.resources) ? data.resources : [];
+      const rawItems = Array.isArray(data?.resources)
+        ? data.resources
+        : Array.isArray(data?.data)
+          ? data.data
+          : [];
       return rawItems
         .map((item: unknown, index: number) => {
           if (!item || typeof item !== "object") {
             return null;
           }
           const record = item as Record<string, unknown>;
-          const type = String(record.type || "").toLowerCase();
-          const url = typeof record.url === "string" ? record.url.trim() : "";
+          const type = String(record.type || record.interaction_type || "").toLowerCase();
+          const url =
+            typeof record.url === "string"
+              ? record.url.trim()
+              : typeof record.resource_url === "string"
+                ? record.resource_url.trim()
+                : "";
           if ((type !== "canvas" && type !== "ar") || !url) {
             return null;
           }
           return {
             id:
               (typeof record.id === "string" && record.id.trim()) ||
+              (typeof record._id === "string" && record._id.trim()) ||
               `resource-${index + 1}`,
             chapter:
               (typeof record.chapter === "string" && record.chapter.trim()) ||
@@ -1243,7 +1346,7 @@ export const fetchTextbookResources = async (
               (typeof record.title === "string" && record.title.trim()) ||
               `${type.toUpperCase()} model`,
             type: type as "canvas" | "ar",
-            url,
+            url: normalizeCanvasUrl(url, type as "canvas" | "ar"),
             page: typeof record.page === "number" ? record.page : null,
           };
         })
@@ -1375,5 +1478,88 @@ export const fetchResolvedTextbook = async (
     };
   } catch {
     return null;
+  }
+};
+
+const extractSubjectFromUrl = (url: string): SubjectName | null => {
+  const match = String(url || "").match(/\/grade\d+\/(maths|math|chemistry|physics|biology)\//i);
+  const raw = String(match?.[1] || "").toLowerCase();
+  if (raw === "maths" || raw === "math") return "math";
+  if (raw === "chemistry") return "chemistry";
+  if (raw === "physics") return "physics";
+  if (raw === "biology") return "biology";
+  return null;
+};
+
+export const fetchAllCanvasLabResources = async (): Promise<LabCanvasResource[]> => {
+  try {
+    const response = await fetch(`${VIRTUAL_LAB_RESOURCES_URL}?interaction_type=CANVAS`, {
+      method: "GET",
+    });
+
+    if (!response.ok) {
+      return [];
+    }
+
+    const data = await response.json();
+    const rawItems = Array.isArray(data?.resources)
+      ? data.resources
+      : Array.isArray(data?.data)
+        ? data.data
+        : [];
+
+    return rawItems
+      .map((item: unknown, index: number) => {
+        if (!item || typeof item !== "object") {
+          return null;
+        }
+        const record = item as Record<string, unknown>;
+        const type = String(record.type || record.interaction_type || "").toLowerCase();
+        const url =
+          typeof record.url === "string"
+            ? record.url.trim()
+            : typeof record.resource_url === "string"
+              ? record.resource_url.trim()
+              : "";
+
+        if (type !== "canvas" || !url) {
+          return null;
+        }
+
+        const explicitSubject =
+          typeof record.subject === "string" ? String(record.subject).toLowerCase().trim() : "";
+
+        const subject =
+          (explicitSubject === "biology" ||
+          explicitSubject === "chemistry" ||
+          explicitSubject === "physics" ||
+          explicitSubject === "math"
+            ? (explicitSubject as SubjectName)
+            : extractSubjectFromUrl(url)) || null;
+
+        if (!subject) {
+          return null;
+        }
+
+        return {
+          id:
+            (typeof record.id === "string" && record.id.trim()) ||
+            (typeof record._id === "string" && record._id.trim()) ||
+            `canvas-${index + 1}`,
+          subject,
+          chapter:
+            (typeof record.chapter === "string" && record.chapter.trim()) || "General",
+          topic:
+            (typeof record.topic === "string" && record.topic.trim()) || "General",
+          title:
+            (typeof record.title === "string" && record.title.trim()) ||
+            (typeof record.topic === "string" && record.topic.trim()) ||
+            "Canvas model",
+          url: normalizeCanvasUrl(url, "canvas"),
+        };
+      })
+      .filter(Boolean) as LabCanvasResource[];
+  } catch {
+    return [];
   }
 };

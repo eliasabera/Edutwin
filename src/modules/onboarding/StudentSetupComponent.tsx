@@ -2,18 +2,20 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useState } from "react";
 import {
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    Alert,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import { COLORS } from "../../../shared/constants/colors";
+import { saveStudentProfile } from "../../../shared/services/auth-service";
 import { recordAssessmentCompletion } from "../../../shared/services/gamification";
 import { updateStudentProfile, useStudentProfile } from "../../../shared/store/user-store";
 import type {
-  PerformanceBand,
-  SubjectName,
+    PerformanceBand,
+    SubjectName,
 } from "../../../shared/types/domain.types";
 
 // ==========================================
@@ -149,7 +151,7 @@ export default function StudentSetupComponent() {
   };
 
   // 3. Finish Everything -> Go to Home
-  const goToHome = () => {
+  const goToHome = async () => {
     const percentage = Math.round((score / QUESTIONS.length) * 100);
     const performanceBand: PerformanceBand =
       percentage >= 80 ? "top" : percentage >= 50 ? "medium" : "support";
@@ -184,7 +186,7 @@ export default function StudentSetupComponent() {
       )
       .map(([subject]) => subject) as SubjectName[];
 
-    updateStudentProfile({
+    const profileUpdates = {
       grade: grade || initialGrade || "9",
       preferredLanguage: (lang || "en") as "en" | "om",
       masteryScore: percentage,
@@ -193,7 +195,17 @@ export default function StudentSetupComponent() {
       strongSubjects,
       diagnosticCompleted: true,
       twinName: `EduTwin Grade ${grade || initialGrade || "9"}`,
-    });
+    };
+
+    updateStudentProfile(profileUpdates);
+
+    try {
+      await saveStudentProfile(profileUpdates);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to save profile changes.";
+      Alert.alert("Profile sync failed", message);
+      return;
+    }
 
     Object.entries(bySubject).forEach(([subject, values]) => {
       if (!values.length) return;
@@ -424,7 +436,9 @@ export default function StudentSetupComponent() {
 
         <TouchableOpacity
           style={[styles.btnPrimary, { width: "100%", marginTop: 40 }]}
-          onPress={goToHome}
+          onPress={() => {
+            void goToHome();
+          }}
         >
           <Text style={styles.btnText}>Go to Home</Text>
           <Ionicons name="rocket-outline" size={20} color="white" />

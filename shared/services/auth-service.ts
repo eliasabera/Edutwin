@@ -1,4 +1,5 @@
 import Constants from "expo-constants";
+import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
 import type { StudentProfile } from "../types/domain.types";
 
@@ -66,6 +67,25 @@ export type BackendStudentProfile = {
 	twin_photo_url?: string;
 };
 
+type StudentProfileUpdatePayload = Partial<{
+	full_name: string;
+	language: "en" | "om";
+	preferred_language: "en" | "om";
+	grade_level: number;
+	grade: string;
+	mastery_score: number;
+	performance_band: "support" | "medium" | "top";
+	twin_name: string;
+	support_subjects: string[];
+	strong_subjects: string[];
+	diagnostic_completed: boolean;
+	xp: number;
+	streak: number;
+	last_active: string | null;
+	student_photo_url: string | null;
+	twin_photo_url: string | null;
+}>;
+
 const extractHostFromExpo = () => {
 	const hostUri =
 		Constants.expoConfig?.hostUri ||
@@ -132,6 +152,38 @@ const PROFILE_FALLBACK_URLS = (
 let authToken: string | null = null;
 let currentUser: AuthUser | null = null;
 let cachedStudentProfile: BackendStudentProfile | null = null;
+const AUTH_TOKEN_STORAGE_KEY = "edutwin_auth_token";
+
+const persistAuthToken = async (token: string) => {
+	try {
+		await SecureStore.setItemAsync(AUTH_TOKEN_STORAGE_KEY, token);
+	} catch {
+		// Keep in-memory auth even if secure persistence is unavailable.
+	}
+};
+
+const deletePersistedAuthToken = async () => {
+	try {
+		await SecureStore.deleteItemAsync(AUTH_TOKEN_STORAGE_KEY);
+	} catch {
+		// Ignore storage cleanup errors on logout.
+	}
+};
+
+const ensureAuthToken = async () => {
+	if (authToken) return authToken;
+
+	try {
+		const restoredToken = await SecureStore.getItemAsync(AUTH_TOKEN_STORAGE_KEY);
+		if (restoredToken && restoredToken.trim()) {
+			authToken = restoredToken.trim();
+		}
+	} catch {
+		// Ignore storage read errors and keep normal missing-token behavior.
+	}
+
+	return authToken;
+};
 
 const parseJson = async (response: Response) => {
 	try {
@@ -237,24 +289,25 @@ const request = async <TData>(
 };
 
 const getRequest = async <TData>(url: string): Promise<TData> => {
-	if (!authToken) {
+	const token = await ensureAuthToken();
+	if (!token) {
 		throw new Error("Missing auth token. Please login again.");
 	}
 
 	const headerVariants: Array<Record<string, string>> = [
 		{
-			Authorization: `Bearer ${authToken}`,
-			"x-auth-token": authToken,
+			Authorization: `Bearer ${token}`,
+			"x-auth-token": token,
 			"Content-Type": "application/json",
 		},
 		{
-			Authorization: authToken,
-			"x-auth-token": authToken,
+			Authorization: token,
+			"x-auth-token": token,
 			"Content-Type": "application/json",
 		},
 		{
-			"x-access-token": authToken,
-			token: authToken,
+			"x-access-token": token,
+			token,
 			"Content-Type": "application/json",
 		},
 	];
@@ -291,6 +344,67 @@ const getRequest = async <TData>(url: string): Promise<TData> => {
 	throw new Error(lastErrorMessage);
 };
 
+const sendAuthorizedProfileUpdate = async (
+	url: string,
+	method: "PATCH" | "PUT",
+	body: StudentProfileUpdatePayload,
+) => {
+	const token = await ensureAuthToken();
+	if (!token) {
+		throw new Error("Missing auth token. Please login again.");
+	}
+
+	const headerVariants: Array<Record<string, string>> = [
+		{
+			Authorization: `Bearer ${token}`,
+			"x-auth-token": token,
+			"Content-Type": "application/json",
+		},
+		{
+			Authorization: token,
+			"x-auth-token": token,
+			"Content-Type": "application/json",
+		},
+		{
+			"x-access-token": token,
+			token,
+			"Content-Type": "application/json",
+		},
+	];
+
+	let lastErrorMessage = "Failed to update profile";
+
+	for (const headers of headerVariants) {
+		let response: Response;
+		try {
+			response = await fetch(url, {
+				method,
+				headers,
+				body: JSON.stringify(body),
+			});
+		} catch {
+			lastErrorMessage = `Network request failed. Check backend reachability at ${url}`;
+			break;
+		}
+
+		const responseBody = await parseJson(response);
+		const successFlag = isRecord(responseBody) ? responseBody.success : undefined;
+		const payload = extractPayload<unknown>(responseBody);
+
+		if (response.ok && successFlag !== false) {
+			return payload;
+		}
+
+		lastErrorMessage = extractErrorMessage(responseBody, lastErrorMessage);
+
+		if (response.status !== 401 && response.status !== 403) {
+			break;
+		}
+	}
+
+	throw new Error(lastErrorMessage);
+};
+
 const getProfileCandidateUrls = () => {
 	const urls = [PROFILE_URL, ...PROFILE_FALLBACK_URLS];
 	if (currentUser?.id) {
@@ -303,6 +417,66 @@ const getProfileCandidateUrls = () => {
 		seen.add(url);
 		return true;
 	});
+};
+
+const buildStudentProfileUpdatePayload = (
+	updates: Partial<StudentProfile>,
+): StudentProfileUpdatePayload => {
+	const payload: StudentProfileUpdatePayload = {};
+
+	if (typeof updates.fullName === "string") {
+		payload.full_name = updates.fullName.trim();
+	}
+	if (updates.preferredLanguage === "en" || updates.preferredLanguage === "om") {
+		payload.language = updates.preferredLanguage;
+		payload.preferred_language = updates.preferredLanguage;
+	}
+	if (typeof updates.grade === "string" && updates.grade.trim()) {
+		payload.grade = updates.grade.trim();
+		const parsedGrade = Number.parseInt(updates.grade, 10);
+		if (Number.isFinite(parsedGrade)) {
+			payload.grade_level = parsedGrade;
+		}
+	}
+	if (typeof updates.masteryScore === "number") {
+		payload.mastery_score = updates.masteryScore;
+	}
+	if (
+		updates.performanceBand === "support" ||
+		updates.performanceBand === "medium" ||
+		updates.performanceBand === "top"
+	) {
+		payload.performance_band = updates.performanceBand;
+	}
+	if (typeof updates.twinName === "string") {
+		payload.twin_name = updates.twinName.trim();
+	}
+	if (Array.isArray(updates.supportSubjects)) {
+		payload.support_subjects = updates.supportSubjects;
+	}
+	if (Array.isArray(updates.strongSubjects)) {
+		payload.strong_subjects = updates.strongSubjects;
+	}
+	if (typeof updates.diagnosticCompleted === "boolean") {
+		payload.diagnostic_completed = updates.diagnosticCompleted;
+	}
+	if (typeof updates.xp === "number") {
+		payload.xp = updates.xp;
+	}
+	if (typeof updates.streak === "number") {
+		payload.streak = updates.streak;
+	}
+	if (typeof updates.lastActive === "string" || updates.lastActive === null) {
+		payload.last_active = updates.lastActive;
+	}
+	if ("studentPhotoUri" in updates) {
+		payload.student_photo_url = updates.studentPhotoUri?.trim() || null;
+	}
+	if ("twinPhotoUri" in updates) {
+		payload.twin_photo_url = updates.twinPhotoUri?.trim() || null;
+	}
+
+	return payload;
 };
 
 const normalizeBackendProfile = (payload: unknown): BackendStudentProfile | null => {
@@ -378,6 +552,7 @@ export const loginUser = async (email: string, password: string) => {
 		password,
 	});
 	authToken = data.token;
+	await persistAuthToken(data.token);
 	currentUser = data.user;
 	return data;
 };
@@ -388,8 +563,13 @@ export const registerStudent = async (payload: StudentRegistrationPayload) => {
 		role: "STUDENT",
 	});
 	authToken = data.token;
+	await persistAuthToken(data.token);
 	currentUser = data.user;
 	return data;
+};
+
+export const hydrateAuthToken = async () => {
+	return ensureAuthToken();
 };
 
 export const fetchStudentProfile = async (options?: { forceRefresh?: boolean }): Promise<BackendStudentProfile> => {
@@ -421,10 +601,48 @@ export const fetchStudentProfile = async (options?: { forceRefresh?: boolean }):
 	throw lastError || new Error("Failed to fetch profile");
 };
 
+export const saveStudentProfile = async (
+	updates: Partial<StudentProfile>,
+): Promise<BackendStudentProfile> => {
+	const payload = buildStudentProfileUpdatePayload(updates);
+	if (!Object.keys(payload).length) {
+		return fetchStudentProfile();
+	}
+
+	const urls = getProfileCandidateUrls();
+	let lastError: Error | null = null;
+
+	for (const url of urls) {
+		for (const method of ["PATCH", "PUT"] as const) {
+			try {
+				const rawPayload = await sendAuthorizedProfileUpdate(url, method, payload);
+				const normalized = normalizeBackendProfile(rawPayload);
+				if (normalized) {
+					cachedStudentProfile = normalized;
+					return normalized;
+				}
+
+				const refreshedProfile = await fetchStudentProfile({ forceRefresh: true });
+				cachedStudentProfile = refreshedProfile;
+				return refreshedProfile;
+			} catch (error) {
+				if (error instanceof Error) {
+					lastError = error;
+				} else {
+					lastError = new Error("Failed to update profile");
+				}
+			}
+		}
+	}
+
+	throw lastError || new Error("Failed to update profile");
+};
+
 export const getAuthToken = () => authToken;
 
 export const clearAuthToken = () => {
 	authToken = null;
 	currentUser = null;
 	cachedStudentProfile = null;
+	void deletePersistedAuthToken();
 };

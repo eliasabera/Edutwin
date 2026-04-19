@@ -114,6 +114,9 @@ export default function TabsLayout() {
 
         return {
           headerShown: false,
+          sceneStyle: {
+            backgroundColor: COLORS.white,
+          },
           tabBarShowLabel: true,
           tabBarHideOnKeyboard: true,
           tabBarActiveTintColor: COLORS.primary,

@@ -18,7 +18,7 @@ const DEMO_MODEL_URL =
   "https://modelviewer.dev/shared-assets/models/Astronaut.glb";
 const DEMO_POSTER_URL = "https://modelviewer.dev/assets/poster-astronaut.webp";
 const HEART_MODEL_URL =
-  "https://vzqerbreduraaluicaxe.supabase.co/storage/v1/object/public/3d-models/beating_heart.glb";
+  "https://vzqerbreduraaluicaxe.supabase.co/storage/v1/object/public/3d-models/beating-heart.glb";
 const HEART_SKETCHFAB_EMBED_URL =
   "https://sketchfab.com/models/d9845afb1ee64ad094adc96320c67d98/embed";
 

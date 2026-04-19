@@ -748,7 +748,7 @@ export default function PracticeHub() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: "#F4F7FC",
+    backgroundColor: "#FFFFFF",
     overflow: "hidden",
   },
   bgGlowBlue: {
@@ -758,7 +758,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     top: -50,
     left: -70,
-    backgroundColor: "rgba(11, 95, 255, 0.16)",
+    backgroundColor: "transparent",
   },
   bgGlowGold: {
     position: "absolute",
@@ -767,7 +767,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     bottom: 120,
     right: -90,
-    backgroundColor: "rgba(255, 150, 0, 0.14)",
+    backgroundColor: "transparent",
   },
   bgGlowSky: {
     position: "absolute",
@@ -776,7 +776,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     top: "42%",
     left: "34%",
-    backgroundColor: "rgba(30, 144, 255, 0.08)",
+    backgroundColor: "transparent",
   },
   container: {
     flex: 1,

@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from "react";
 
 let hideTabBar = false;
+let hideSidebar = false;
 const listeners = new Set<() => void>();
 
 const emitChange = () => {
@@ -18,6 +19,17 @@ export const setHideTabBar = (value: boolean) => {
 
 export const getHideTabBar = () => hideTabBar;
 
+export const setHideSidebar = (value: boolean) => {
+	if (hideSidebar === value) {
+		return;
+	}
+
+	hideSidebar = value;
+	emitChange();
+};
+
+export const getHideSidebar = () => hideSidebar;
+
 export const useHideTabBar = () =>
 	useSyncExternalStore(
 		(listener) => {
@@ -26,4 +38,14 @@ export const useHideTabBar = () =>
 		},
 		getHideTabBar,
 		getHideTabBar,
+	);
+
+export const useHideSidebar = () =>
+	useSyncExternalStore(
+		(listener) => {
+			listeners.add(listener);
+			return () => listeners.delete(listener);
+		},
+		getHideSidebar,
+		getHideSidebar,
 	);

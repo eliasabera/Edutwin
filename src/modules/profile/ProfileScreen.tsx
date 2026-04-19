@@ -6,6 +6,8 @@ import { clearChatSessionId } from "@/shared/services/ai-service";
 import {
   clearAuthToken,
   fetchStudentProfile,
+  mapBackendProfileToStudentProfile,
+  saveStudentProfile,
   setCachedStudentProfile
 } from "@/shared/services/auth-service";
 import { resetGamificationState } from "@/shared/services/gamification";
@@ -53,42 +55,7 @@ export default function ProfileScreen() {
           const profile = await fetchStudentProfile({ forceRefresh: true });
           if (!isMounted) return;
 
-          setCachedStudentProfile(profile);
-
-          const currentProfile = getStudentProfile();
-
-          const normalizedSupport = (profile.support_subjects || [])
-            .filter((item) => ["biology", "chemistry", "physics", "math"].includes(item))
-            .map((item) => item as "biology" | "chemistry" | "physics" | "math");
-
-          const normalizedStrong = (profile.strong_subjects || [])
-            .filter((item) => ["biology", "chemistry", "physics", "math"].includes(item))
-            .map((item) => item as "biology" | "chemistry" | "physics" | "math");
-
-          updateStudentProfile({
-            fullName: profile.full_name || currentProfile.fullName,
-            grade: String(profile.grade_level ?? profile.grade ?? currentProfile.grade),
-            preferredLanguage: profile.language === "om" ? "om" : "en",
-            masteryScore:
-              typeof profile.mastery_score === "number"
-                ? profile.mastery_score
-                : currentProfile.masteryScore,
-            performanceBand:
-              profile.performance_band === "top"
-                ? "top"
-                : profile.performance_band === "support" || profile.performance_band === "low"
-                  ? "support"
-                  : "medium",
-            twinName: profile.twin_name || currentProfile.twinName,
-            supportSubjects:
-              normalizedSupport.length > 0 ? normalizedSupport : currentProfile.supportSubjects,
-            strongSubjects:
-              normalizedStrong.length > 0 ? normalizedStrong : currentProfile.strongSubjects,
-            diagnosticCompleted:
-              typeof profile.diagnostic_completed === "boolean"
-                ? profile.diagnostic_completed
-                : currentProfile.diagnosticCompleted,
-          });
+          applyBackendProfile(profile);
         } catch (error) {
           console.warn("Profile fetch failed:", error);
           if (isMounted) {
@@ -121,6 +88,49 @@ export default function ProfileScreen() {
     .join("");
   const studentPhotoUri = studentProfile.studentPhotoUri?.trim() || "";
   const twinPhotoUri = studentProfile.twinPhotoUri?.trim() || "";
+
+  const applyBackendProfile = (profile: Awaited<ReturnType<typeof fetchStudentProfile>>) => {
+    setCachedStudentProfile(profile);
+
+    const currentProfile = getStudentProfile();
+    const mappedProfile = mapBackendProfileToStudentProfile(profile);
+
+    updateStudentProfile({
+      ...mappedProfile,
+      supportSubjects:
+        Array.isArray(mappedProfile.supportSubjects) && mappedProfile.supportSubjects.length > 0
+          ? mappedProfile.supportSubjects
+          : currentProfile.supportSubjects,
+      strongSubjects:
+        Array.isArray(mappedProfile.strongSubjects) && mappedProfile.strongSubjects.length > 0
+          ? mappedProfile.strongSubjects
+          : currentProfile.strongSubjects,
+      studentPhotoUri:
+        mappedProfile.studentPhotoUri !== undefined
+          ? mappedProfile.studentPhotoUri
+          : currentProfile.studentPhotoUri,
+      twinPhotoUri:
+        mappedProfile.twinPhotoUri !== undefined
+          ? mappedProfile.twinPhotoUri
+          : currentProfile.twinPhotoUri,
+    });
+  };
+
+  const persistProfileChanges = async (updates: Parameters<typeof updateStudentProfile>[0]) => {
+    setIsSyncing(true);
+    setSyncError("");
+
+    try {
+      const savedProfile = await saveStudentProfile(updates);
+      applyBackendProfile(savedProfile);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to update profile.";
+      setSyncError(message);
+      throw error;
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   const pickPhotoFor = async (target: "student" | "twin") => {
     try {
@@ -159,19 +169,23 @@ export default function ProfileScreen() {
     }
   };
 
-  const applyPendingPhoto = () => {
+  const applyPendingPhoto = async () => {
     if (!pendingPhotoTarget || !pendingPhotoUri.trim()) {
       return;
     }
 
-    if (pendingPhotoTarget === "student") {
-      updateStudentProfile({ studentPhotoUri: pendingPhotoUri.trim() });
-    } else {
-      updateStudentProfile({ twinPhotoUri: pendingPhotoUri.trim() });
-    }
+    try {
+      if (pendingPhotoTarget === "student") {
+        await persistProfileChanges({ studentPhotoUri: pendingPhotoUri.trim() });
+      } else {
+        await persistProfileChanges({ twinPhotoUri: pendingPhotoUri.trim() });
+      }
 
-    setPendingPhotoUri("");
-    setPendingPhotoTarget(null);
+      setPendingPhotoUri("");
+      setPendingPhotoTarget(null);
+    } catch {
+      // Error is already shown in syncError.
+    }
   };
 
   const cancelPendingPhoto = () => {
@@ -213,21 +227,26 @@ export default function ProfileScreen() {
     ]);
   };
 
-  const clearPhotoFor = (target: "student" | "twin") => {
+  const clearPhotoFor = async (target: "student" | "twin") => {
     if (target === "student") {
-      updateStudentProfile({ studentPhotoUri: undefined });
+      await persistProfileChanges({ studentPhotoUri: undefined });
       return;
     }
-    updateStudentProfile({ twinPhotoUri: undefined });
+    await persistProfileChanges({ twinPhotoUri: undefined });
   };
 
-  const choosePresetAvatar = (target: "student" | "twin", uri: string) => {
-    if (target === "student") {
-      updateStudentProfile({ studentPhotoUri: uri });
-    } else {
-      updateStudentProfile({ twinPhotoUri: uri });
+  const choosePresetAvatar = async (target: "student" | "twin", uri: string) => {
+    try {
+      if (target === "student") {
+        await persistProfileChanges({ studentPhotoUri: uri });
+      } else {
+        await persistProfileChanges({ twinPhotoUri: uri });
+      }
+
+      setAvatarPickerVisible(false);
+    } catch {
+      // Error is already shown in syncError.
     }
-    setAvatarPickerVisible(false);
   };
 
   const presetAvatarList =
@@ -527,7 +546,9 @@ export default function ProfileScreen() {
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.pendingUseButton}
-                onPress={applyPendingPhoto}
+                onPress={() => {
+                  void applyPendingPhoto();
+                }}
                 activeOpacity={0.85}
               >
                 <Text style={styles.pendingUseText}>Use Photo</Text>
@@ -543,7 +564,7 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: "#F4F7FC",
+    backgroundColor: "#FFFFFF",
     overflow: "hidden",
   },
   bgGlowBlue: {
@@ -553,7 +574,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     top: -50,
     left: -70,
-    backgroundColor: "rgba(11, 95, 255, 0.16)",
+    backgroundColor: "transparent",
   },
   bgGlowGold: {
     position: "absolute",
@@ -562,7 +583,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     bottom: 120,
     right: -90,
-    backgroundColor: "rgba(255, 150, 0, 0.14)",
+    backgroundColor: "transparent",
   },
   bgGlowSky: {
     position: "absolute",
@@ -571,7 +592,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     top: "42%",
     left: "34%",
-    backgroundColor: "rgba(30, 144, 255, 0.08)",
+    backgroundColor: "transparent",
   },
   container: {
     paddingHorizontal: 18,

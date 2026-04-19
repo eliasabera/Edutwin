@@ -1,7 +1,6 @@
 import {
   fetchStudentProfile,
-  mapBackendProfileToStudentProfile,
-  setCachedStudentProfile,
+  setCachedStudentProfile
 } from "@/shared/services/auth-service";
 import { useGamification } from "@/shared/services/gamification";
 import { getStudentProfile, updateStudentProfile, useStudentProfile } from "@/shared/store/user-store";
@@ -10,12 +9,12 @@ import { useFocusEffect } from "@react-navigation/native";
 import { useRouter } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
-    Animated,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    View,
+  Animated,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -25,7 +24,9 @@ export default function HomeScreen() {
   const studentProfile = useStudentProfile();
   const gamification = useGamification();
   const thunderPulse = useRef(new Animated.Value(0)).current;
+  const commandFeedScrollRef = useRef<ScrollView>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [activeTileIndex, setActiveTileIndex] = useState(0);
 
   useFocusEffect(
     useCallback(() => {
@@ -136,9 +137,6 @@ export default function HomeScreen() {
   const totalXp = Math.max(studentProfile.xp ?? 0, localEstimatedXp);
   const activeStreak = Math.max(studentProfile.streak ?? 0, gamification.currentStreak);
   const studentRank = Math.max(1, Math.floor(totalXp / 120) + 1);
-  const supportSubjects = studentProfile.supportSubjects.join(", ") || "None";
-  const strongSubjects = studentProfile.strongSubjects.join(", ") || "None";
-
   const drawerTiles = [
     {
       id: "sync",
@@ -172,30 +170,27 @@ export default function HomeScreen() {
       accent: "#FF9600",
       glow: "rgba(255, 150, 0, 0.2)",
     },
-    {
-      id: "support",
-      icon: "book-outline",
-      label: "Support",
-      value: supportSubjects,
-      accent: "#0B5FFF",
-      glow: "rgba(11, 95, 255, 0.18)",
-    },
-    {
-      id: "strong",
-      icon: "rocket-outline",
-      label: "Strong",
-      value: strongSubjects,
-      accent: "#FF9600",
-      glow: "rgba(255, 150, 0, 0.2)",
-    },
   ] as const;
+
+  const scrollToTile = (direction: "prev" | "next") => {
+    const nextIndex =
+      direction === "prev"
+        ? Math.max(0, activeTileIndex - 1)
+        : Math.min(drawerTiles.length - 1, activeTileIndex + 1);
+
+    if (nextIndex === activeTileIndex) {
+      return;
+    }
+
+    commandFeedScrollRef.current?.scrollTo({
+      x: nextIndex * 136,
+      animated: true,
+    });
+    setActiveTileIndex(nextIndex);
+  };
 
   return (
     <View style={styles.screen}>
-      <View style={styles.bgGlowBlue} />
-      <View style={styles.bgGlowGold} />
-      <View style={styles.bgGlowSky} />
-
       <View style={[styles.headerArea, { paddingTop: insets.top + 10 }]}>
         <View style={styles.brandRow}>
           <View style={styles.rankBadge}>
@@ -274,33 +269,56 @@ export default function HomeScreen() {
             </View>
           </Animated.View>
         </Pressable>
-
-        <Text style={styles.actionTitle}>Start Daily Mission</Text>
       </View>
 
       <View style={[styles.glassDrawer, { paddingBottom: insets.bottom + 18 }]}>
-        <View style={styles.drawerHandle} />
-
         <View style={styles.drawerHeaderRow}>
           <Text style={styles.drawerTitle}>Command Feed</Text>
-          <Pressable style={styles.drawerPulseBadge}>
-            <Ionicons name="sparkles" size={14} color="#0B5FFF" />
-            <Text style={styles.drawerPulseText}>Live</Text>
-          </Pressable>
-        </View>
-
-        <View style={styles.drawerHintRow}>
-          <Ionicons name="chevron-back" size={16} color="#6B7A99" />
-          <Text style={styles.drawerHintText}>Swipe for more cards</Text>
-          <Ionicons name="chevron-forward" size={16} color="#6B7A99" />
+          <View style={styles.drawerNavRow}>
+            <Pressable
+              style={[styles.drawerNavButton, activeTileIndex === 0 && styles.drawerNavButtonDisabled]}
+              onPress={() => scrollToTile("prev")}
+              disabled={activeTileIndex === 0}
+            >
+              <Ionicons name="chevron-back" size={16} color={activeTileIndex === 0 ? "#A8B6CF" : "#0B5FFF"} />
+              <Text style={[styles.drawerNavText, activeTileIndex === 0 && styles.drawerNavTextDisabled]}>Prev</Text>
+            </Pressable>
+            <Pressable
+              style={[
+                styles.drawerNavButton,
+                activeTileIndex === drawerTiles.length - 1 && styles.drawerNavButtonDisabled,
+              ]}
+              onPress={() => scrollToTile("next")}
+              disabled={activeTileIndex === drawerTiles.length - 1}
+            >
+              <Text
+                style={[
+                  styles.drawerNavText,
+                  activeTileIndex === drawerTiles.length - 1 && styles.drawerNavTextDisabled,
+                ]}
+              >
+                Next
+              </Text>
+              <Ionicons
+                name="chevron-forward"
+                size={16}
+                color={activeTileIndex === drawerTiles.length - 1 ? "#A8B6CF" : "#0B5FFF"}
+              />
+            </Pressable>
+          </View>
         </View>
 
         <ScrollView
+          ref={commandFeedScrollRef}
           horizontal
           showsHorizontalScrollIndicator={false}
           decelerationRate="fast"
           snapToInterval={130}
           snapToAlignment="start"
+          onMomentumScrollEnd={(event) => {
+            const nextIndex = Math.round(event.nativeEvent.contentOffset.x / 136);
+            setActiveTileIndex(Math.max(0, Math.min(drawerTiles.length - 1, nextIndex)));
+          }}
           contentContainerStyle={styles.tileRow}
         >
           {drawerTiles.map((tile) => (
@@ -338,43 +356,8 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: "#F4F7FC",
+    backgroundColor: "#FFFFFF",
     overflow: "hidden",
-  },
-  bgGlowBlue: {
-    position: "absolute",
-    width: 280,
-    height: 280,
-    borderRadius: 999,
-    top: -50,
-    left: -70,
-    backgroundColor: "rgba(11, 95, 255, 0.16)",
-    shadowColor: "#0B5FFF",
-    shadowOpacity: 0.35,
-    shadowRadius: 40,
-    elevation: 8,
-  },
-  bgGlowGold: {
-    position: "absolute",
-    width: 250,
-    height: 250,
-    borderRadius: 999,
-    bottom: 120,
-    right: -90,
-    backgroundColor: "rgba(255, 150, 0, 0.14)",
-    shadowColor: "#FF9600",
-    shadowOpacity: 0.28,
-    shadowRadius: 42,
-    elevation: 8,
-  },
-  bgGlowSky: {
-    position: "absolute",
-    width: 180,
-    height: 180,
-    borderRadius: 999,
-    top: "42%",
-    left: "34%",
-    backgroundColor: "rgba(30, 144, 255, 0.08)",
   },
   headerArea: {
     alignItems: "center",
@@ -565,12 +548,6 @@ const styles = StyleSheet.create({
     shadowRadius: 14,
     elevation: 8,
   },
-  actionTitle: {
-    marginTop: 14,
-    color: "#1A202C",
-    fontSize: 22,
-    fontWeight: "800",
-  },
   glassDrawer: {
     position: "absolute",
     left: 0,
@@ -588,13 +565,6 @@ const styles = StyleSheet.create({
     shadowRadius: 20,
     elevation: 12,
   },
-  drawerHandle: {
-    alignSelf: "center",
-    width: 62,
-    height: 4,
-    borderRadius: 999,
-    backgroundColor: "rgba(90, 108, 135, 0.35)",
-  },
   drawerHeaderRow: {
     marginTop: 14,
     marginBottom: 12,
@@ -608,10 +578,15 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "800",
   },
-  drawerPulseBadge: {
+  drawerNavRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 8,
+  },
+  drawerNavButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 999,
@@ -619,23 +594,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(11, 95, 255, 0.35)",
   },
-  drawerPulseText: {
-    color: "#5A6C87",
+  drawerNavButtonDisabled: {
+    borderColor: "rgba(168, 182, 207, 0.45)",
+  },
+  drawerNavText: {
+    color: "#0B5FFF",
     fontWeight: "700",
     fontSize: 12,
   },
-  drawerHintRow: {
-    marginBottom: 14,
-    paddingHorizontal: 18,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-  },
-  drawerHintText: {
-    color: "#6B7A99",
-    fontSize: 12,
-    fontWeight: "600",
+  drawerNavTextDisabled: {
+    color: "#A8B6CF",
   },
   tileRow: {
     paddingHorizontal: 18,

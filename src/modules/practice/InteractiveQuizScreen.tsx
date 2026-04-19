@@ -527,7 +527,7 @@ export default function InteractiveQuizScreen({ route }: Props) {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: "#F4F7FC",
+    backgroundColor: "#FFFFFF",
   },
   screenContent: {
     paddingHorizontal: 18,
@@ -537,7 +537,7 @@ const styles = StyleSheet.create({
   },
   screenCenter: {
     flex: 1,
-    backgroundColor: "#F4F7FC",
+    backgroundColor: "#FFFFFF",
     justifyContent: "center",
     alignItems: "center",
     paddingHorizontal: 24,
