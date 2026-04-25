@@ -15,7 +15,13 @@ Storage -> Buckets -> 3d-models -> CORS -> allow origin * and methods GET, HEAD,
 */
 
 import type { ArTopic } from "@/shared/services/ar-service";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   AppState,
   type AppStateStatus,
@@ -24,6 +30,7 @@ import {
   Pressable,
   StyleSheet,
   Text,
+  useColorScheme,
   View,
 } from "react-native";
 
@@ -34,12 +41,20 @@ type Props = {
   onSessionEnded?: () => void;
 };
 
-type ArLaunchStage = "checking-device" | "checking-model" | "launching" | "error";
+type ArLaunchStage =
+  | "checking-device"
+  | "checking-model"
+  | "launching"
+  | "error";
 
 const DEFAULT_HEART_MODEL_URL =
   "https://vzqerbreduraaluicaxe.supabase.co/storage/v1/object/public/3d-models/beating_heart.glb";
 
-const withTimeout = async <T,>(promise: Promise<T>, ms: number, message: string) => {
+const withTimeout = async <T,>(
+  promise: Promise<T>,
+  ms: number,
+  message: string,
+) => {
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   const timeoutPromise = new Promise<T>((_, reject) => {
     timeoutId = setTimeout(() => {
@@ -79,7 +94,7 @@ const checkModelAvailability = async (modelUrl: string) => {
       },
     }),
     10000,
-    "Model check timed out"
+    "Model check timed out",
   );
 
   if (!response.ok) {
@@ -110,16 +125,21 @@ export default function ARWebView({
   transparentBackground = false,
   onSessionEnded,
 }: Props) {
-  const backgroundColor = transparentBackground ? "transparent" : "#F4F7FC";
+  const isDark = useColorScheme() === "dark";
+  const backgroundColor = transparentBackground
+    ? "transparent"
+    : isDark
+      ? "#08111F"
+      : "#F4F7FC";
   const modelUrl = topic.modelUrl || DEFAULT_HEART_MODEL_URL;
   const modelTitle = topic.title || "AR Model";
   const sceneViewerIntentUrl = useMemo(
     () => buildSceneViewerIntentUrl(modelUrl, modelTitle),
-    [modelTitle, modelUrl]
+    [modelTitle, modelUrl],
   );
   const sceneViewerUrl = useMemo(
     () => buildSceneViewerUrl(modelUrl, modelTitle),
-    [modelTitle, modelUrl]
+    [modelTitle, modelUrl],
   );
   const hasLaunchedRef = useRef(false);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
@@ -133,7 +153,7 @@ export default function ARWebView({
     if (Platform.OS !== "android") {
       setStage("error");
       setLaunchError(
-        "This model is GLB. iPhone real-world AR requires USDZ. Upload a USDZ model to enable Quick Look AR."
+        "This model is GLB. iPhone real-world AR requires USDZ. Upload a USDZ model to enable Quick Look AR.",
       );
       return false;
     }
@@ -147,7 +167,7 @@ export default function ARWebView({
     if (!canOpenIntent && !canOpenFallback) {
       setStage("error");
       setLaunchError(
-        "This device cannot open Google Scene Viewer. Update Google app/Chrome and Google Play Services for AR."
+        "This device cannot open Google Scene Viewer. Update Google app/Chrome and Google Play Services for AR.",
       );
       return false;
     }
@@ -159,14 +179,14 @@ export default function ARWebView({
       if (contentLength > 0 && modelSizeMb > 35) {
         setStage("error");
         setLaunchError(
-          "This AR model is very large and may crash or close on some phones. Optimize the GLB to under 35 MB and try again."
+          "This AR model is very large and may crash or close on some phones. Optimize the GLB to under 35 MB and try again.",
         );
         return false;
       }
     } catch {
       setStage("error");
       setLaunchError(
-        "The AR model could not be loaded. Check Supabase file permissions, CORS, and network connection."
+        "The AR model could not be loaded. Check Supabase file permissions, CORS, and network connection.",
       );
       return false;
     }
@@ -184,12 +204,14 @@ export default function ARWebView({
           await Linking.openURL(sceneViewerUrl);
           return true;
         } catch {
-          Linking.openURL("market://details?id=com.google.ar.core").catch(() => {
-            // Keep silent if Play Store is unavailable.
-          });
+          Linking.openURL("market://details?id=com.google.ar.core").catch(
+            () => {
+              // Keep silent if Play Store is unavailable.
+            },
+          );
           setStage("error");
           setLaunchError(
-            "Install or update Google Play Services for AR, then try again."
+            "Install or update Google Play Services for AR, then try again.",
           );
         }
       }
@@ -214,14 +236,17 @@ export default function ARWebView({
   useEffect(() => {
     const sub = AppState.addEventListener("change", (nextState) => {
       const wasInBackground =
-        appStateRef.current === "background" || appStateRef.current === "inactive";
+        appStateRef.current === "background" ||
+        appStateRef.current === "inactive";
 
       if (wasInBackground && nextState === "active" && wasExternalArOpened) {
         if (onSessionEnded) {
           onSessionEnded();
         } else {
           setStage("error");
-          setLaunchError("AR session ended. Tap Retry AR Launch to open it again.");
+          setLaunchError(
+            "AR session ended. Tap Retry AR Launch to open it again.",
+          );
         }
       }
 
@@ -277,7 +302,7 @@ const styles = StyleSheet.create({
     flex: 1,
     borderRadius: 24,
     overflow: "hidden",
-    backgroundColor: "#F4F7FC",
+    backgroundColor: "#F4F7FC", // Default background color
   },
   fullScreenContainer: {
     borderRadius: 0,

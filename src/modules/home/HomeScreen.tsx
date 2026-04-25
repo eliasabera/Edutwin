@@ -1,32 +1,122 @@
-import {
+﻿import {
   fetchStudentProfile,
-  setCachedStudentProfile
+  setCachedStudentProfile,
 } from "@/shared/services/auth-service";
-import { useGamification } from "@/shared/services/gamification";
-import { getStudentProfile, updateStudentProfile, useStudentProfile } from "@/shared/store/user-store";
+import {
+  fetchAllCanvasLabResources,
+  type LabCanvasResource,
+} from "@/shared/services/ai-service";
+import { getArTopics } from "@/shared/services/ar-service";
+import { setPreferredLanguage } from "@/shared/store/language-store";
+import {
+  getEffectiveThemeMode,
+  useAppSettings,
+} from "@/shared/store/settings-store";
+import {
+  getStudentProfile,
+  updateStudentProfile,
+  useStudentProfile,
+} from "@/shared/store/user-store";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
 import { useRouter } from "expo-router";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  ActivityIndicator,
   Animated,
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  useColorScheme,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useTranslation } from "@/shared/i18n";
+
+const FALLBACK_CANVAS_MODELS: LabCanvasResource[] = [
+  {
+    id: "fallback-physics-definition",
+    subject: "physics",
+    chapter: "Chapter 1: Foundations",
+    title: "Definition and Nature of Physics",
+    topic: "Definition and Nature of Physics",
+    url: "https://fyp3d-view.onrender.com/grade9/physics/chapter1/Definition_and_Nature_of_Physics.html",
+    gradeLevel: 9,
+  },
+  {
+    id: "fallback-chemistry-photosynthesis",
+    subject: "chemistry",
+    chapter: "Chapter 1",
+    title: "Photosynthesis",
+    topic: "Photosynthesis",
+    url: "https://fyp3d-view.onrender.com/grade9/chemistry/chapter1/Photosynthesis.html",
+    gradeLevel: 9,
+  },
+  {
+    id: "fallback-math-exponent-cube",
+    subject: "math",
+    chapter: "Chapter 3: Algebra",
+    title: "Exponent Expansion Cube",
+    topic: "Exponent Expansion Cube",
+    url: "https://fyp3d-view.onrender.com/grade9/maths/chapter3/5.exponent_expansion_cube.html",
+    gradeLevel: 9,
+  },
+];
+
+type ShowcaseSlide = {
+  id: string;
+  title: string;
+  description: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  cta: string;
+  target: "ai" | "canvas" | "ar";
+};
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { t, language } = useTranslation();
+  const isOm = language === "om";
+  const appSettings = useAppSettings();
+  const deviceTheme = useColorScheme();
+  const isDark =
+    appSettings.themeMode === "system"
+      ? (deviceTheme ?? getEffectiveThemeMode()) === "dark"
+      : appSettings.themeMode === "dark";
+
   const studentProfile = useStudentProfile();
-  const gamification = useGamification();
-  const thunderPulse = useRef(new Animated.Value(0)).current;
-  const commandFeedScrollRef = useRef<ScrollView>(null);
   const [isSyncing, setIsSyncing] = useState(false);
-  const [activeTileIndex, setActiveTileIndex] = useState(0);
+  const [isLoadingCanvas, setIsLoadingCanvas] = useState(true);
+  const [canvasItems, setCanvasItems] = useState<LabCanvasResource[]>([]);
+  const [activeShowcaseIndex, setActiveShowcaseIndex] = useState(0);
+  const showcaseSlideX = useState(() => new Animated.Value(0))[0];
+  const showcaseOpacity = useState(() => new Animated.Value(1))[0];
+
+  const studentGradeNumber = Number.parseInt(String(studentProfile.grade || ""), 10);
+  const homeCopy = {
+    homeBadge: isOm ? "Mana" : "Home",
+    studentLabel: isOm ? "Barataa" : "Student",
+    streakLabel: isOm ? "guyyaa barnootaa walitti fufee" : "day learning streak",
+    learningFlow: isOm ? "Tartiiba Barnoota EduTwin" : "EduTwin Learning Flow",
+    aiTitle: isOm ? "Qajeelfama Gorsaa AI" : "AI Tutor Guidance",
+    aiDescription: isOm
+      ? "Gorsa dhuunfaa, ibsa saffisaa, fi karaalee shaakalaa sadarkaa barnootaa keetiin wal qabatan argadhu."
+      : "Get personalized hints, instant explanations, and adaptive practice paths that match each student's mastery level.",
+    openAiTutor: isOm ? "Gorsaa AI Bani" : "Open AI Tutor",
+    canvasTitle: isOm ? "Kaanaavaasii Walitti Hidhata" : "Interactive Learning Canvas",
+    canvasFallbackDescription: isOm
+      ? "Moodeelota walitti hidhata qabaniin yaad-rimeewwan mul'ataa gochuun baradhu."
+      : "Explore interactive concept simulations that turn abstract ideas into visual understanding.",
+    openLab: isOm ? "Labooraatorii Bani" : "Open Learning Lab",
+    arKicker: isOm ? "Cuuphannoo" : "Immersive",
+    arTitle: isOm ? "Istuudiyoo Barnoota AR" : "AR Learning Studio",
+    arDescription: isOm
+      ? "Yaad-rimeewwan ulfaatoo muuxannoo 3D walitti hidhata qabuutti jijjiiri."
+      : "Transform abstract concepts into interactive 3D experiences.",
+    launchAr: isOm ? "Muuxannoo AR Jalqabi" : "Launch AR Experience",
+  };
 
   useFocusEffect(
     useCallback(() => {
@@ -38,7 +128,9 @@ export default function HomeScreen() {
         }
 
         try {
-          const latestProfile = await fetchStudentProfile({ forceRefresh: true });
+          const latestProfile = await fetchStudentProfile({
+            forceRefresh: true,
+          });
           if (!isMounted) return;
 
           setCachedStudentProfile(latestProfile);
@@ -46,7 +138,11 @@ export default function HomeScreen() {
           const currentProfile = getStudentProfile();
           updateStudentProfile({
             fullName: latestProfile.full_name || currentProfile.fullName,
-            grade: String(latestProfile.grade_level ?? latestProfile.grade ?? currentProfile.grade),
+            grade: String(
+              latestProfile.grade_level ??
+                latestProfile.grade ??
+                currentProfile.grade,
+            ),
             preferredLanguage: latestProfile.language === "om" ? "om" : "en",
             masteryScore:
               typeof latestProfile.mastery_score === "number"
@@ -55,20 +151,23 @@ export default function HomeScreen() {
             performanceBand:
               latestProfile.performance_band === "top"
                 ? "top"
-                : latestProfile.performance_band === "support" || latestProfile.performance_band === "low"
+                : latestProfile.performance_band === "support" ||
+                    latestProfile.performance_band === "low"
                   ? "support"
                   : latestProfile.performance_band === "medium"
                     ? "medium"
                     : currentProfile.performanceBand,
             twinName: latestProfile.twin_name || currentProfile.twinName,
             supportSubjects:
-              Array.isArray(latestProfile.support_subjects) && latestProfile.support_subjects.length > 0
+              Array.isArray(latestProfile.support_subjects) &&
+              latestProfile.support_subjects.length > 0
                 ? (latestProfile.support_subjects.filter((item) =>
                     ["biology", "chemistry", "physics", "math"].includes(item),
                   ) as typeof currentProfile.supportSubjects)
                 : currentProfile.supportSubjects,
             strongSubjects:
-              Array.isArray(latestProfile.strong_subjects) && latestProfile.strong_subjects.length > 0
+              Array.isArray(latestProfile.strong_subjects) &&
+              latestProfile.strong_subjects.length > 0
                 ? (latestProfile.strong_subjects.filter((item) =>
                     ["biology", "chemistry", "physics", "math"].includes(item),
                   ) as typeof currentProfile.strongSubjects)
@@ -77,16 +176,25 @@ export default function HomeScreen() {
               typeof latestProfile.diagnostic_completed === "boolean"
                 ? latestProfile.diagnostic_completed
                 : currentProfile.diagnosticCompleted,
-            xp: typeof latestProfile.xp === "number" ? latestProfile.xp : currentProfile.xp,
+            xp:
+              typeof latestProfile.xp === "number"
+                ? latestProfile.xp
+                : currentProfile.xp,
             streak:
-              typeof latestProfile.streak === "number" ? latestProfile.streak : currentProfile.streak,
+              typeof latestProfile.streak === "number"
+                ? latestProfile.streak
+                : currentProfile.streak,
             lastActive:
               typeof latestProfile.last_active === "string"
                 ? latestProfile.last_active
                 : currentProfile.lastActive,
           });
+
+          await setPreferredLanguage(
+            latestProfile.language === "om" ? "om" : "en",
+          );
         } catch {
-          // Keep the last known profile when the backend is unavailable.
+          // Keep the local profile when backend is unavailable.
         } finally {
           if (isMounted) {
             setIsSyncing(false);
@@ -103,252 +211,401 @@ export default function HomeScreen() {
   );
 
   useEffect(() => {
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(thunderPulse, {
-          toValue: 1,
-          duration: 900,
-          useNativeDriver: true,
-        }),
-        Animated.timing(thunderPulse, {
-          toValue: 0,
-          duration: 900,
-          useNativeDriver: true,
-        }),
-      ]),
+    let isMounted = true;
+
+    const loadCanvas = async () => {
+      setIsLoadingCanvas(true);
+      try {
+        const fetched = await fetchAllCanvasLabResources();
+        if (!isMounted) return;
+
+        const gradeMatched = Number.isFinite(studentGradeNumber)
+          ? fetched.filter(
+              (item) => !item.gradeLevel || item.gradeLevel === studentGradeNumber,
+            )
+          : fetched;
+
+        const merged = [...gradeMatched];
+        for (const fallback of FALLBACK_CANVAS_MODELS) {
+          if (
+            Number.isFinite(studentGradeNumber) &&
+            fallback.gradeLevel &&
+            fallback.gradeLevel !== studentGradeNumber
+          ) {
+            continue;
+          }
+          if (!merged.some((item) => item.subject === fallback.subject)) {
+            merged.push(fallback);
+          }
+        }
+
+        const subjectPriority: Array<LabCanvasResource["subject"]> = [
+          "physics",
+          "chemistry",
+          "math",
+        ];
+
+        const prioritized = subjectPriority
+          .map((subject) => merged.find((item) => item.subject === subject) || null)
+          .filter(Boolean) as LabCanvasResource[];
+
+        const remaining = merged.filter(
+          (item) => !prioritized.some((selected) => selected.id === item.id),
+        );
+
+        const orderedCanvas = [...prioritized, ...remaining].slice(0, 5);
+
+        setCanvasItems(orderedCanvas);
+      } finally {
+        if (isMounted) {
+          setIsLoadingCanvas(false);
+        }
+      }
+    };
+
+    void loadCanvas();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [studentGradeNumber]);
+
+  const profileName = studentProfile.fullName || t("home.studentFallback");
+  const displayName = profileName.split(" ")[0];
+  const avatarLetter = displayName.charAt(0).toUpperCase();
+
+  const featuredAr = useMemo(() => {
+    const allAr = getArTopics();
+    if (!allAr.length) return null;
+
+    const preferredSubject =
+      studentProfile.supportSubjects?.[0] ||
+      studentProfile.strongSubjects?.[0] ||
+      "biology";
+
+    return (
+      allAr.find((item) => item.subject === preferredSubject) ||
+      allAr[0] ||
+      null
     );
+  }, [studentProfile.strongSubjects, studentProfile.supportSubjects]);
 
-    loop.start();
-    return () => loop.stop();
-  }, [thunderPulse]);
+  const prioritizedCanvasItems = useMemo(() => {
+    const subjectPriority: Array<LabCanvasResource["subject"]> = [
+      "physics",
+      "chemistry",
+      "math",
+    ];
 
-  const unlockedAchievements = gamification.achievements.filter(
-    (achievement) => achievement.unlocked,
-  );
-  const readinessPercent = Math.min(
-    100,
-    Math.round((gamification.digitalTwinSignals / 8) * 100),
-  );
-  const localEstimatedXp =
-    gamification.totalPracticeCompleted * 25 +
-    gamification.teacherAssessmentsCompleted * 50 +
-    gamification.aiPracticeCompleted * 2 +
-    unlockedAchievements.length * 10;
-  const totalXp = Math.max(studentProfile.xp ?? 0, localEstimatedXp);
-  const activeStreak = Math.max(studentProfile.streak ?? 0, gamification.currentStreak);
-  const studentRank = Math.max(1, Math.floor(totalXp / 120) + 1);
-  const drawerTiles = [
-    {
-      id: "sync",
-      icon: "sync-outline",
-      label: "Twin Sync",
-      value: `${readinessPercent}%`,
-      accent: "#0B5FFF",
-      glow: "rgba(11, 95, 255, 0.18)",
-    },
-    {
-      id: "streak",
-      icon: "flame",
-      label: "Current Streak",
-      value: `${activeStreak}`,
-      accent: "#FF9600",
-      glow: "rgba(255, 150, 0, 0.2)",
-    },
-    {
-      id: "xp",
-      icon: "diamond",
-      label: "Total XP",
-      value: `${totalXp}`,
-      accent: "#0B5FFF",
-      glow: "rgba(11, 95, 255, 0.18)",
-    },
-    {
-      id: "achievements",
-      icon: "trophy",
-      label: "Unlocked",
-      value: `${unlockedAchievements.length}`,
-      accent: "#FF9600",
-      glow: "rgba(255, 150, 0, 0.2)",
-    },
-  ] as const;
+    const prioritizedBySubject = subjectPriority
+      .map(
+        (subject) =>
+          canvasItems.find((item) => item.subject === subject) || null,
+      )
+      .filter(Boolean) as LabCanvasResource[];
 
-  const scrollToTile = (direction: "prev" | "next") => {
-    const nextIndex =
-      direction === "prev"
-        ? Math.max(0, activeTileIndex - 1)
-        : Math.min(drawerTiles.length - 1, activeTileIndex + 1);
+    if (prioritizedBySubject.length > 0) {
+      return prioritizedBySubject;
+    }
 
-    if (nextIndex === activeTileIndex) {
+    return canvasItems.slice(0, 4);
+  }, [canvasItems]);
+
+  const selectedCanvas = prioritizedCanvasItems[0] || null;
+
+  const showcaseSlides = useMemo<ShowcaseSlide[]>(() => {
+    const canvasDescription = isLoadingCanvas
+      ? t("home.loadingCanvas")
+      : selectedCanvas
+        ? isOm
+          ? `${selectedCanvas.title} fakkaatan moodeelota waliin shaakali; yaad-rimeewwan qabatamaan hubadhu.`
+          : `Practice with interactive models like ${selectedCanvas.title}. Learn by manipulating real concepts instead of only reading notes.`
+        : homeCopy.canvasFallbackDescription;
+
+    return [
+      {
+        id: "show-ai",
+        title: homeCopy.aiTitle,
+        description: homeCopy.aiDescription,
+        icon: "sparkles-outline",
+        cta: homeCopy.openAiTutor,
+        target: "ai",
+      },
+      {
+        id: "show-canvas",
+        title: homeCopy.canvasTitle,
+        description: canvasDescription,
+        icon: "layers-outline",
+        cta: homeCopy.openLab,
+        target: "canvas",
+      },
+    ];
+  }, [homeCopy.aiDescription, homeCopy.aiTitle, homeCopy.canvasFallbackDescription, homeCopy.canvasTitle, homeCopy.openAiTutor, homeCopy.openLab, isLoadingCanvas, isOm, selectedCanvas, t]);
+
+  const activeShowcase = showcaseSlides[activeShowcaseIndex] || showcaseSlides[0];
+
+  useEffect(() => {
+    setActiveShowcaseIndex((prev) =>
+      prev >= showcaseSlides.length ? 0 : prev,
+    );
+  }, [showcaseSlides.length]);
+
+  useEffect(() => {
+    if (showcaseSlides.length <= 1) return;
+
+    const interval = setInterval(() => {
+      setActiveShowcaseIndex((prev) => (prev + 1) % showcaseSlides.length);
+    }, 4200);
+
+    return () => clearInterval(interval);
+  }, [showcaseSlides.length]);
+
+  useEffect(() => {
+    showcaseSlideX.setValue(22);
+    showcaseOpacity.setValue(0);
+
+    Animated.parallel([
+      Animated.timing(showcaseSlideX, {
+        toValue: 0,
+        duration: 340,
+        useNativeDriver: true,
+      }),
+      Animated.timing(showcaseOpacity, {
+        toValue: 1,
+        duration: 340,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [activeShowcaseIndex, showcaseOpacity, showcaseSlideX]);
+
+  const handleOpenShowcase = useCallback(() => {
+    if (!activeShowcase) return;
+
+    if (activeShowcase.target === "ai") {
+      router.push("/(tabs)/ai-tutor" as never);
       return;
     }
 
-    commandFeedScrollRef.current?.scrollTo({
-      x: nextIndex * 136,
-      animated: true,
-    });
-    setActiveTileIndex(nextIndex);
-  };
+    if (activeShowcase.target === "canvas") {
+      router.push("/(tabs)/lab" as never);
+      return;
+    }
+
+    if (featuredAr?.id) {
+      router.push(`/ar-view/${featuredAr.id}` as never);
+    }
+  }, [activeShowcase, featuredAr?.id, router]);
 
   return (
-    <View style={styles.screen}>
-      <View style={[styles.headerArea, { paddingTop: insets.top + 10 }]}>
-        <View style={styles.brandRow}>
-          <View style={styles.rankBadge}>
-            <Ionicons name="podium-outline" size={14} color="#0B5FFF" />
-            <Text style={styles.rankBadgeText}>Rank {studentRank}</Text>
-          </View>
-          {isSyncing && (
-            <View style={styles.syncBadge}>
-              <Text style={styles.syncBadgeText}>Syncing</Text>
-            </View>
-          )}
-        </View>
-
-        <View style={styles.energyWrap}>
-          <View style={styles.energyStatLeft}>
-            <Ionicons name="flame" size={19} color="#FF9600" />
-            <Text style={styles.energyStatValue}>{activeStreak}</Text>
-            <Text style={styles.energyStatLabel}>Streak</Text>
-          </View>
-
-          <View style={styles.energyRingShell}>
-            <View style={styles.energyRingTrack} />
-            <View
-              style={[
-                styles.energyRingProgress,
-                {
-                  transform: [
-                    {
-                      rotate: `${Math.max(
-                        8,
-                        Math.round((readinessPercent / 100) * 360),
-                      )}deg`,
-                    },
-                  ],
-                },
-              ]}
-            />
-
-            <View style={styles.energyCore}>
-              <Text style={styles.energyCoreLabel}>Twin</Text>
-              <Text style={styles.energyName} numberOfLines={2}>
-                {studentProfile.twinName || "EduTwin"}
-              </Text>
-              <Text style={styles.energyRankText}>Rank {studentRank}</Text>
-            </View>
-          </View>
-
-          <View style={styles.energyStatRight}>
-            <Ionicons name="diamond" size={19} color="#0B5FFF" />
-            <Text style={styles.energyStatValue}>{totalXp}</Text>
-            <Text style={styles.energyStatLabel}>XP</Text>
+    <View
+      style={[
+        styles.screen,
+        { backgroundColor: isDark ? "#08111F" : "#FFFFFF" },
+      ]}
+    >
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{
+          flexGrow: 1,
+          paddingTop: insets.top + 8,
+          paddingBottom: insets.bottom + 112,
+          paddingHorizontal: 16,
+          gap: 12,
+        }}
+      >
+        <View
+          style={[
+            styles.homeBadgeCard,
+            {
+              backgroundColor: isDark ? "#0E1A2C" : "rgba(255, 255, 255, 0.94)",
+              borderColor: isDark ? "#22324E" : "rgba(11, 95, 255, 0.16)",
+            },
+          ]}
+        >
+          <View style={styles.homeBadgeRow}>
+            <Ionicons name="home-outline" size={15} color="#0B5FFF" />
+            <Text style={[styles.homeBadgeText, { color: isDark ? "#F4F7FB" : "#1A202C" }]}>{homeCopy.homeBadge}</Text>
           </View>
         </View>
-      </View>
 
-      <View style={styles.actionZone}>
-        <Pressable onPress={() => router.push("/ai-tutor" as never)}>
-          <Animated.View
-            style={[
-              styles.actionOrb,
-              {
-                transform: [
+        <View
+          style={[
+            styles.profileCard,
+            {
+              backgroundColor: isDark ? "#0E1A2C" : "#FFFFFF",
+              borderColor: isDark ? "#22324E" : "#DCE9FC",
+            },
+          ]}
+        >
+          <View style={styles.profileRow}>
+            <View style={styles.profileIdentity}>
+              <View
+                style={[
+                  styles.avatarWrap,
                   {
-                    scale: thunderPulse.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [1, 1.06],
-                    }),
+                    backgroundColor: isDark ? "#1B3256" : "#E7F0FF",
+                    borderColor: isDark ? "#3E5E94" : "#C8DBFF",
                   },
-                ],
+                ]}
+              >
+                <Text style={[styles.avatarText, { color: isDark ? "#DDEAFF" : "#0B5FFF" }]}>{avatarLetter}</Text>
+              </View>
+
+              <View style={styles.profileTextWrap}>
+                <Text style={[styles.profileName, { color: isDark ? "#F4F7FB" : "#12233F" }]} numberOfLines={1}>
+                  {profileName}
+                </Text>
+                <Text style={[styles.profileSubtitle, { color: isDark ? "#AAB7CF" : "#60779E" }]} numberOfLines={1}>
+                  {homeCopy.studentLabel}
+                </Text>
+                <View style={styles.statusRow}>
+                  <Ionicons name="flame" size={12} color="#F7A019" />
+                  <Text style={[styles.statusText, { color: isDark ? "#C3D4F2" : "#5073A8" }]} numberOfLines={1}>
+                    {(studentProfile.streak ?? 0).toString()} {homeCopy.streakLabel}
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            {isSyncing ? (
+              <View
+                style={[
+                  styles.syncPill,
+                  {
+                    backgroundColor: isDark ? "#121C2E" : "#ECF3FF",
+                    borderColor: isDark ? "#2E4368" : "#D4E3FA",
+                  },
+                ]}
+              >
+                <Text style={[styles.syncText, { color: isDark ? "#BFD6FF" : "#1F4E9D" }]}>{t("home.syncing")}</Text>
+              </View>
+            ) : null}
+          </View>
+        </View>
+
+        <View
+          style={[
+            styles.mainFeatureCard,
+            {
+              backgroundColor: isDark ? "#0E1A2C" : "#FFFFFF",
+              borderColor: isDark ? "#22324E" : "#DCE9FC",
+            },
+          ]}
+        >
+          <View
+            style={[
+              styles.showcaseCard,
+              {
+                backgroundColor: isDark ? "#0E1A2C" : "#FFFFFF",
+                borderColor: isDark ? "#22324E" : "#DCE9FC",
               },
             ]}
           >
-            <View style={styles.actionOrbAura} />
-            <View style={styles.actionOrbInner}>
-              <Ionicons name="flash" size={34} color="#FFFFFF" />
-            </View>
-          </Animated.View>
-        </Pressable>
-      </View>
-
-      <View style={[styles.glassDrawer, { paddingBottom: insets.bottom + 18 }]}>
-        <View style={styles.drawerHeaderRow}>
-          <Text style={styles.drawerTitle}>Command Feed</Text>
-          <View style={styles.drawerNavRow}>
-            <Pressable
-              style={[styles.drawerNavButton, activeTileIndex === 0 && styles.drawerNavButtonDisabled]}
-              onPress={() => scrollToTile("prev")}
-              disabled={activeTileIndex === 0}
-            >
-              <Ionicons name="chevron-back" size={16} color={activeTileIndex === 0 ? "#A8B6CF" : "#0B5FFF"} />
-              <Text style={[styles.drawerNavText, activeTileIndex === 0 && styles.drawerNavTextDisabled]}>Prev</Text>
-            </Pressable>
-            <Pressable
+            <Animated.View
               style={[
-                styles.drawerNavButton,
-                activeTileIndex === drawerTiles.length - 1 && styles.drawerNavButtonDisabled,
-              ]}
-              onPress={() => scrollToTile("next")}
-              disabled={activeTileIndex === drawerTiles.length - 1}
-            >
-              <Text
-                style={[
-                  styles.drawerNavText,
-                  activeTileIndex === drawerTiles.length - 1 && styles.drawerNavTextDisabled,
-                ]}
-              >
-                Next
-              </Text>
-              <Ionicons
-                name="chevron-forward"
-                size={16}
-                color={activeTileIndex === drawerTiles.length - 1 ? "#A8B6CF" : "#0B5FFF"}
-              />
-            </Pressable>
-          </View>
-        </View>
-
-        <ScrollView
-          ref={commandFeedScrollRef}
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          decelerationRate="fast"
-          snapToInterval={130}
-          snapToAlignment="start"
-          onMomentumScrollEnd={(event) => {
-            const nextIndex = Math.round(event.nativeEvent.contentOffset.x / 136);
-            setActiveTileIndex(Math.max(0, Math.min(drawerTiles.length - 1, nextIndex)));
-          }}
-          contentContainerStyle={styles.tileRow}
-        >
-          {drawerTiles.map((tile) => (
-            <View
-              key={tile.id}
-              style={[
-                styles.glassTile,
+                styles.showcaseAnimatedContent,
                 {
-                  shadowColor: tile.glow,
+                  opacity: showcaseOpacity,
+                  transform: [{ translateX: showcaseSlideX }],
                 },
               ]}
             >
               <View
                 style={[
-                  styles.tileIconWrap,
+                  styles.floatBadge,
                   {
-                    backgroundColor: `${tile.accent}14`,
-                    borderColor: `${tile.accent}44`,
+                    backgroundColor: isDark ? "#121C2E" : "#EEF4FF",
+                    borderColor: isDark ? "#2E4368" : "#D4E3FA",
                   },
                 ]}
               >
-                <Ionicons name={tile.icon} size={18} color={tile.accent} />
+                <Ionicons name={activeShowcase.icon} size={20} color="#0B5FFF" />
               </View>
 
-              <Text style={styles.tileValue}>{tile.value}</Text>
-              <Text style={styles.tileLabel}>{tile.label}</Text>
-            </View>
-          ))}
-        </ScrollView>
-      </View>
+              <Text style={[styles.showcaseEyebrow, { color: isDark ? "#BFD6FF" : "#4870A8" }]}>{homeCopy.learningFlow}</Text>
+              <Text numberOfLines={2} style={[styles.showcaseTitle, { color: isDark ? "#F4F7FB" : "#102646" }]}>{activeShowcase.title}</Text>
+              <Text numberOfLines={3} style={[styles.showcaseDescription, { color: isDark ? "#CFDCF4" : "#4E6790" }]}>{activeShowcase.description}</Text>
+
+              <Pressable
+                style={({ pressed }) => [
+                  styles.showcaseAction,
+                  pressed && styles.primaryActionPressed,
+                ]}
+                onPress={handleOpenShowcase}
+              >
+                <Text style={styles.showcaseActionText}>{activeShowcase.cta}</Text>
+                <Ionicons name="arrow-forward" size={17} color="#FFFFFF" />
+              </Pressable>
+            </Animated.View>
+          </View>
+
+          <View style={styles.dotRow}>
+            {showcaseSlides.map((slide, index) => {
+              const active = index === activeShowcaseIndex;
+              return (
+                <View
+                  key={`dot-${slide.id}`}
+                  style={[
+                    styles.dot,
+                    {
+                      width: active ? 15 : 6,
+                      backgroundColor: active
+                        ? "#0B5FFF"
+                        : isDark
+                          ? "#38557F"
+                          : "#C4D6F3",
+                    },
+                  ]}
+                />
+              );
+            })}
+          </View>
+        </View>
+
+        <View style={styles.fixedCardGap} />
+
+        <View
+          style={[
+            styles.arInfoCard,
+            {
+              backgroundColor: isDark ? "#1B3F8C" : "#2A57BE",
+              borderColor: isDark ? "#3A63B2" : "#4C75D0",
+            },
+          ]}
+        >
+          <View style={styles.arGlowOrb} />
+
+          <View style={styles.arModelWrap}>
+            <Image
+              source={require("../../../assets/images/ar_model.png")}
+              style={styles.arModelImage}
+              resizeMode="contain"
+            />
+          </View>
+
+          <View style={styles.arTextWrap}>
+            <Text style={[styles.arKicker, { color: "#D7E6FF" }]}>{homeCopy.arKicker}</Text>
+            <Text style={[styles.arTitle, { color: "#F6FAFF" }]}>{homeCopy.arTitle}</Text>
+            <Text style={[styles.arDescription, { color: "#D9E6FF" }]}>{homeCopy.arDescription}</Text>
+          </View>
+
+          <Pressable
+            disabled={!featuredAr}
+            style={({ pressed }) => [
+              styles.arAction,
+              !featuredAr && styles.disabledAction,
+              pressed && featuredAr && styles.primaryActionPressed,
+            ]}
+            onPress={() => {
+              if (!featuredAr?.id) return;
+              router.push(`/ar-view/${featuredAr.id}` as never);
+            }}
+          >
+            <Text style={styles.arActionText}>{homeCopy.launchAr}</Text>
+            <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
+          </Pressable>
+        </View>
+      </ScrollView>
     </View>
   );
 }
@@ -357,288 +614,270 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: "#FFFFFF",
-    overflow: "hidden",
   },
-  headerArea: {
-    alignItems: "center",
-    paddingHorizontal: 18,
-  },
-  brandRow: {
-    width: "100%",
-    marginBottom: 16,
+  topRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "flex-end",
-    paddingHorizontal: 6,
-    gap: 10,
+    justifyContent: "flex-start",
+    marginBottom: 0,
   },
-  rankBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 999,
-    backgroundColor: "rgba(255, 255, 255, 0.9)",
-    borderWidth: 1,
-    borderColor: "rgba(11, 95, 255, 0.18)",
-  },
-  rankBadgeText: {
-    color: "#0B5FFF",
+  brandMark: {
+    color: "#12233F",
+    fontSize: 28,
     fontWeight: "800",
-    fontSize: 12,
+    letterSpacing: -0.8,
   },
-  syncBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    backgroundColor: "rgba(11, 95, 255, 0.1)",
+  homeBadgeCard: {
+    alignSelf: "flex-start",
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
     borderWidth: 1,
-    borderColor: "rgba(11, 95, 255, 0.15)",
+    shadowColor: "#0E234E",
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 3,
   },
-  syncBadgeText: {
-    color: "#0B5FFF",
-    fontWeight: "700",
-    fontSize: 11,
-  },
-  energyWrap: {
-    width: "100%",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingTop: 8,
-    paddingBottom: 4,
+  homeBadgeRow: {
     flexDirection: "row",
+    alignItems: "center",
     gap: 8,
   },
-  energyRingShell: {
-    width: 186,
-    height: 186,
-    borderRadius: 999,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  energyRingTrack: {
-    position: "absolute",
-    width: 186,
-    height: 186,
-    borderRadius: 999,
-    borderWidth: 10,
-    borderColor: "#D9E6FF",
-  },
-  energyRingProgress: {
-    position: "absolute",
-    width: 186,
-    height: 186,
-    borderRadius: 999,
-    borderWidth: 10,
-    borderColor: "transparent",
-    borderTopColor: "#0B5FFF",
-    borderRightColor: "#FF9600",
-  },
-  energyCore: {
-    width: 136,
-    height: 136,
-    borderRadius: 999,
-    backgroundColor: "rgba(255, 255, 255, 0.82)",
-    borderWidth: 1,
-    borderColor: "rgba(11, 95, 255, 0.12)",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 2,
-    paddingHorizontal: 10,
-    shadowColor: "#0E234E",
-    shadowOpacity: 0.18,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 6,
-  },
-  energyCoreLabel: {
-    color: "#6B7A99",
-    fontWeight: "700",
-    fontSize: 11,
-    letterSpacing: 1.2,
-    textTransform: "uppercase",
-  },
-  energyName: {
-    color: "#1A202C",
-    fontWeight: "800",
-    fontSize: 16,
-    textAlign: "center",
-    paddingHorizontal: 8,
-  },
-  energyRankText: {
-    color: "#0B5FFF",
-    fontWeight: "800",
-    fontSize: 11,
-  },
-  energyStatLeft: {
-    minWidth: 70,
-    alignItems: "center",
-    paddingVertical: 8,
-    paddingHorizontal: 8,
-    borderRadius: 20,
-    backgroundColor: "rgba(255, 255, 255, 0.9)",
-    borderWidth: 1,
-    borderColor: "rgba(255, 150, 0, 0.22)",
-    shadowColor: "#FF9600",
-    shadowOpacity: 0.22,
-    shadowRadius: 10,
-    elevation: 4,
-  },
-  energyStatRight: {
-    minWidth: 70,
-    alignItems: "center",
-    paddingVertical: 8,
-    paddingHorizontal: 8,
-    borderRadius: 20,
-    backgroundColor: "rgba(255, 255, 255, 0.9)",
-    borderWidth: 1,
-    borderColor: "rgba(11, 95, 255, 0.22)",
-    shadowColor: "#0B5FFF",
-    shadowOpacity: 0.22,
-    shadowRadius: 10,
-    elevation: 4,
-  },
-  energyStatValue: {
-    marginTop: 2,
-    color: "#1A202C",
-    fontWeight: "800",
-    fontSize: 14,
-  },
-  energyStatLabel: {
-    color: "#718096",
-    fontWeight: "600",
-    fontSize: 10,
-  },
-  actionZone: {
-    marginTop: 14,
-    marginBottom: 8,
-    alignItems: "center",
-  },
-  actionOrb: {
-    width: 154,
-    height: 154,
-    borderRadius: 999,
-    backgroundColor: "rgba(255, 255, 255, 0.75)",
-    borderWidth: 1,
-    borderColor: "rgba(11, 95, 255, 0.16)",
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#0B5FFF",
-    shadowOpacity: 0.28,
-    shadowRadius: 22,
-    elevation: 10,
-  },
-  actionOrbAura: {
-    position: "absolute",
-    width: 130,
-    height: 130,
-    borderRadius: 999,
-    backgroundColor: "rgba(11, 95, 255, 0.08)",
-  },
-  actionOrbInner: {
-    width: 92,
-    height: 92,
-    borderRadius: 999,
-    backgroundColor: "#0B5FFF",
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#0B5FFF",
-    shadowOpacity: 0.35,
-    shadowRadius: 14,
-    elevation: 8,
-  },
-  glassDrawer: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    minHeight: "38%",
-    backgroundColor: "rgba(255, 255, 255, 0.82)",
-    borderTopLeftRadius: 36,
-    borderTopRightRadius: 36,
-    borderWidth: 1,
-    borderColor: "rgba(11, 95, 255, 0.1)",
-    paddingTop: 12,
-    shadowColor: "#0E234E",
-    shadowOpacity: 0.15,
-    shadowRadius: 20,
-    elevation: 12,
-  },
-  drawerHeaderRow: {
-    marginTop: 14,
-    marginBottom: 12,
-    paddingHorizontal: 18,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  drawerTitle: {
-    color: "#1A202C",
+  homeBadgeText: {
     fontSize: 18,
     fontWeight: "800",
   },
-  drawerNavRow: {
-    flexDirection: "row",
-    alignItems: "center",
+  profileCard: {
+    borderRadius: 20,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#DCE9FC",
+    padding: 12,
     gap: 8,
   },
-  drawerNavButton: {
+  profileRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: 10,
+  },
+  profileIdentity: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    backgroundColor: "rgba(255, 255, 255, 0.75)",
-    borderWidth: 1,
-    borderColor: "rgba(11, 95, 255, 0.35)",
+    flex: 1,
+    gap: 10,
   },
-  drawerNavButtonDisabled: {
-    borderColor: "rgba(168, 182, 207, 0.45)",
-  },
-  drawerNavText: {
-    color: "#0B5FFF",
-    fontWeight: "700",
-    fontSize: 12,
-  },
-  drawerNavTextDisabled: {
-    color: "#A8B6CF",
-  },
-  tileRow: {
-    paddingHorizontal: 18,
-    gap: 12,
-    paddingBottom: 10,
-  },
-  glassTile: {
-    width: 124,
-    height: 124,
-    borderRadius: 24,
-    padding: 14,
-    justifyContent: "space-between",
-    backgroundColor: "rgba(255, 255, 255, 0.9)",
-    borderWidth: 1,
-    borderColor: "rgba(11, 95, 255, 0.12)",
-    shadowOpacity: 0.18,
-    shadowRadius: 12,
-    elevation: 5,
-  },
-  tileIconWrap: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+  avatarWrap: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
   },
-  tileValue: {
-    color: "#1A202C",
-    fontSize: 22,
+  avatarText: {
+    fontSize: 23,
     fontWeight: "800",
   },
-  tileLabel: {
-    color: "#718096",
+  profileTextWrap: {
+    flex: 1,
+    gap: 2,
+  },
+  profileName: {
+    fontSize: 17,
+    fontWeight: "800",
+  },
+  profileSubtitle: {
     fontSize: 12,
     fontWeight: "600",
+  },
+  statusRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  statusText: {
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  syncPill: {
+    borderRadius: 999,
+    backgroundColor: "#ECF3FF",
+    borderWidth: 1,
+    borderColor: "#D4E3FA",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  syncText: {
+    color: "#1F4E9D",
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  mainFeatureCard: {
+    borderRadius: 20,
+    borderWidth: 1,
+    padding: 12,
+    gap: 10,
+    height: 320,
+  },
+  arInfoCard: {
+    borderRadius: 20,
+    borderWidth: 1,
+    padding: 16,
+    gap: 12,
+    overflow: "hidden",
+    position: "relative",
+  },
+  sectionHint: {
+    color: "#60779E",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  showcaseCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    flex: 1,
+    padding: 14,
+    gap: 10,
+    position: "relative",
+    overflow: "hidden",
+  },
+  floatBadge: {
+    width: 40,
+    height: 40,
+    borderRadius: 14,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  showcaseAnimatedContent: {
+    gap: 10,
+  },
+  showcaseEyebrow: {
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  showcaseTitle: {
+    fontSize: 24,
+    lineHeight: 30,
+    fontWeight: "800",
+    maxWidth: "85%",
+  },
+  showcaseDescription: {
+    fontSize: 13,
+    lineHeight: 20,
+    fontWeight: "600",
+    maxWidth: "88%",
+    minHeight: 60,
+  },
+  showcaseAction: {
+    alignSelf: "flex-start",
+    borderRadius: 999,
+    backgroundColor: "#0B5FFF",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  showcaseActionText: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  dotRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "center",
+    gap: 5,
+  },
+  dot: {
+    height: 6,
+    borderRadius: 99,
+  },
+  fixedCardGap: {
+    height: 2,
+  },
+  arTextWrap: {
+    gap: 3,
+    maxWidth: "52%",
+    zIndex: 2,
+  },
+  arGlowOrb: {
+    position: "absolute",
+    width: 210,
+    height: 210,
+    borderRadius: 120,
+    right: -58,
+    top: -78,
+    backgroundColor: "rgba(143, 183, 255, 0.24)",
+  },
+  arModelWrap: {
+    position: "absolute",
+    right: -28,
+    top: -20,
+    width: 262,
+    height: 188,
+    pointerEvents: "none",
+    zIndex: 1,
+  },
+  arModelImage: {
+    width: "100%",
+    height: "100%",
+  },
+  arKicker: {
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  arTitle: {
+    fontSize: 22,
+    lineHeight: 26,
+    fontWeight: "800",
+  },
+  arDescription: {
+    fontSize: 14,
+    lineHeight: 21,
+    fontWeight: "600",
+  },
+  primaryAction: {
+    borderRadius: 14,
+    backgroundColor: "#0B5FFF",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  arAction: {
+    marginTop: 8,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.14)",
+    borderWidth: 1,
+    borderColor: "rgba(225,238,255,0.45)",
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    alignSelf: "flex-start",
+    zIndex: 2,
+  },
+  arActionText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  primaryActionPressed: {
+    opacity: 0.9,
+  },
+  disabledAction: {
+    backgroundColor: "#9DB8ED",
+  },
+  primaryActionText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "800",
+    flex: 1,
   },
 });

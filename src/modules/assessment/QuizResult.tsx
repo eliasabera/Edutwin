@@ -3,10 +3,12 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import React from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { COLORS } from "../../../shared/constants/colors";
+import { useTranslation } from "../../../shared/i18n";
 
 export default function QuizResult() {
   const router = useRouter();
   const params = useLocalSearchParams();
+  const { t } = useTranslation();
 
   // Parse params (safely handle defaults)
   const score = Number(params.score) || 0;
@@ -32,22 +34,20 @@ export default function QuizResult() {
           ]}
         >
           <Text style={styles.scoreText}>{percentage}%</Text>
-          <Text style={styles.totalText}>Mastery</Text>
+          <Text style={styles.totalText}>{t("quiz.mastery")}</Text>
         </View>
 
         <Text style={styles.title}>
-          {isGood ? "Great Baseline!" : "Gaps Detected"}
+          {isGood ? t("quiz.greatBaseline") : t("quiz.gapsDetected")}
         </Text>
-        <Text style={styles.subtitle}>
-          We have analyzed your answers to build your Digital Twin.
-        </Text>
+        <Text style={styles.subtitle}>{t("quiz.analysisSubtitle")}</Text>
       </View>
 
       {/* 2. Analysis Card (The "Twin" Logic) */}
       <View style={styles.card}>
         <View style={styles.cardHeader}>
           <Ionicons name="analytics" size={20} color={COLORS.primary} />
-          <Text style={styles.cardTitle}>Knowledge Profile</Text>
+          <Text style={styles.cardTitle}>{t("quiz.knowledgeProfile")}</Text>
         </View>
 
         <View style={styles.statRow}>
@@ -77,10 +77,7 @@ export default function QuizResult() {
         {!isGood && (
           <View style={styles.alertBox}>
             <Ionicons name="alert-circle" size={20} color="#E65100" />
-            <Text style={styles.alertText}>
-              We recommend reviewing Grade 8 Algebra before starting Grade 9
-              Math.
-            </Text>
+            <Text style={styles.alertText}>{t("quiz.reviewAdvice")}</Text>
           </View>
         )}
       </View>
@@ -88,7 +85,7 @@ export default function QuizResult() {
       {/* 3. Continue Button */}
       <View style={styles.footer}>
         <TouchableOpacity style={styles.btnPrimary} onPress={handleContinue}>
-          <Text style={styles.btnText}>Go to Home</Text>
+          <Text style={styles.btnText}>{t("quiz.goToHome")}</Text>
           <Ionicons name="rocket-outline" size={20} color="white" />
         </TouchableOpacity>
       </View>

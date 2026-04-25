@@ -5,15 +5,17 @@ import {
   submitPracticeAttempt,
 } from "@/shared/services/ai-service";
 import { syncTwinProgress } from "@/shared/services/gamification";
+import { useTranslation } from "@/shared/i18n";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
+  useColorScheme,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -54,8 +56,7 @@ const normalizeBooleanAnswer = (value: string) => {
   return normalized;
 };
 
-const getOptionLetter = (index: number) =>
-  String.fromCharCode(65 + index);
+const getOptionLetter = (index: number) => String.fromCharCode(65 + index);
 
 const extractOptionIndexFromAnswer = (
   answer: string,
@@ -85,7 +86,9 @@ const extractOptionIndexFromAnswer = (
     }
   }
 
-  const optionWord = normalizeText(answer).match(/\b(option|choice)\s+([a-z])\b/);
+  const optionWord = normalizeText(answer).match(
+    /\b(option|choice)\s+([a-z])\b/,
+  );
   if (optionWord) {
     const idx = optionWord[2].toUpperCase().charCodeAt(0) - 65;
     if (idx >= 0 && idx < options.length) {
@@ -96,14 +99,26 @@ const extractOptionIndexFromAnswer = (
   return -1;
 };
 
-const areAnswersEquivalent = (question: QuizQuestion, provided: string, expected: string) => {
+const areAnswersEquivalent = (
+  question: QuizQuestion,
+  provided: string,
+  expected: string,
+) => {
   if (question.type === "true_false") {
-    return normalizeBooleanAnswer(provided) === normalizeBooleanAnswer(expected);
+    return (
+      normalizeBooleanAnswer(provided) === normalizeBooleanAnswer(expected)
+    );
   }
 
   if (question.type === "mcq" && Array.isArray(question.options)) {
-    const providedIndex = extractOptionIndexFromAnswer(provided, question.options);
-    const expectedIndex = extractOptionIndexFromAnswer(expected, question.options);
+    const providedIndex = extractOptionIndexFromAnswer(
+      provided,
+      question.options,
+    );
+    const expectedIndex = extractOptionIndexFromAnswer(
+      expected,
+      question.options,
+    );
 
     if (providedIndex >= 0 && expectedIndex >= 0) {
       return providedIndex === expectedIndex;
@@ -134,7 +149,9 @@ const getSafeHintText = (question: QuizQuestion) => {
   }
 
   if (normalizedAnswer && normalizedAnswer.length >= 3) {
-    const answerTokens = normalizedAnswer.split(" ").filter((token) => token.length >= 3);
+    const answerTokens = normalizedAnswer
+      .split(" ")
+      .filter((token) => token.length >= 3);
     const revealsAnswer =
       normalizedHint.includes(normalizedAnswer) ||
       answerTokens.some((token) => normalizedHint.includes(token));
@@ -149,6 +166,8 @@ const getSafeHintText = (question: QuizQuestion) => {
 
 export default function InteractiveQuizScreen({ route }: Props) {
   const router = useRouter();
+  const isDark = useColorScheme() === "dark";
+  const { t } = useTranslation();
   const initialQuestions = route?.params?.questions || [];
   const quizId = route?.params?.quizId || "";
   const initialSubject = route?.params?.subject || "";
@@ -169,7 +188,9 @@ export default function InteractiveQuizScreen({ route }: Props) {
   const [attempted, setAttempted] = useState(false);
   const [postExplanationVisible, setPostExplanationVisible] = useState(false);
   const [correctCount, setCorrectCount] = useState(0);
-  const [answerByIndex, setAnswerByIndex] = useState<Record<number, string>>({});
+  const [answerByIndex, setAnswerByIndex] = useState<Record<number, string>>(
+    {},
+  );
   const [isSavingAttempt, setIsSavingAttempt] = useState(false);
   const [attemptSaved, setAttemptSaved] = useState(false);
 
@@ -206,9 +227,7 @@ export default function InteractiveQuizScreen({ route }: Props) {
       } catch (error) {
         if (!mounted) return;
         setHydrateError(
-          error instanceof Error
-            ? error.message
-            : "Failed to load quiz from backend.",
+          error instanceof Error ? error.message : t("practice.loadFailed"),
         );
       } finally {
         if (mounted) {
@@ -249,7 +268,7 @@ export default function InteractiveQuizScreen({ route }: Props) {
       setTimeUp(true);
       setAttempted(true);
       setIsCorrect(false);
-      setFeedbackText("Time is up. Review the hint and try the next question.");
+      setFeedbackText(t("practice.timeUp"));
       return;
     }
 
@@ -259,10 +278,6 @@ export default function InteractiveQuizScreen({ route }: Props) {
 
     return () => clearTimeout(timer);
   }, [timeLeft, attempted, isGrading, isFinished]);
-
-  const progressLabel = useMemo(() => {
-    return `${Math.min(currentIndex + 1, questions.length)}/${questions.length}`;
-  }, [currentIndex, questions.length]);
 
   const submitForGrading = async (studentAnswer: string) => {
     if (!currentQ || isGrading || attempted || !studentAnswer.trim()) {
@@ -334,9 +349,7 @@ export default function InteractiveQuizScreen({ route }: Props) {
       setIsSavingAttempt(false);
       setAttemptSaved(true);
       setSaveStatusText(
-        result.success
-          ? "Your attempt was saved to EduTwin backend."
-          : "Attempt could not be saved to backend. Your score is still available locally.",
+        result.success ? t("practice.savedBackend") : t("practice.saveFailed"),
       );
 
       if (quizSubject) {
@@ -344,34 +357,60 @@ export default function InteractiveQuizScreen({ route }: Props) {
           subject: quizSubject as "biology" | "chemistry" | "physics" | "math",
           score: correctCount,
           totalQuestions: questions.length,
-          xp_delta: Math.max(3, correctCount === questions.length ? 10 : Math.round((correctCount / Math.max(1, questions.length)) * 10) + 2),
+          xp_delta: Math.max(
+            3,
+            correctCount === questions.length
+              ? 10
+              : Math.round(
+                  (correctCount / Math.max(1, questions.length)) * 10,
+                ) + 2,
+          ),
         });
       }
     };
 
     void submitAttempt();
-  }, [isFinished, quizId, attemptSaved, isSavingAttempt, questions, answerByIndex, quizSubject, correctCount]);
+  }, [
+    isFinished,
+    quizId,
+    attemptSaved,
+    isSavingAttempt,
+    questions,
+    answerByIndex,
+    quizSubject,
+    correctCount,
+  ]);
 
   if (isHydrating) {
     return (
-      <View style={styles.screenCenter}>
+      <View
+        style={[
+          styles.screenCenter,
+          { backgroundColor: isDark ? "#08111F" : "#FFFFFF" },
+        ]}
+      >
         <ActivityIndicator size="small" color={COLORS.primary} />
-        <Text style={styles.completeText}>Loading quiz from backend...</Text>
+        <Text style={styles.completeText}>{t("practice.loadingQuiz")}</Text>
       </View>
     );
   }
 
   if (!questions.length) {
     return (
-      <View style={styles.screenCenter}>
+      <View
+        style={[
+          styles.screenCenter,
+          { backgroundColor: isDark ? "#08111F" : "#FFFFFF" },
+        ]}
+      >
         <Ionicons name="warning-outline" size={30} color={COLORS.error} />
-        <Text style={styles.emptyTitle}>No questions found</Text>
+        <Text style={styles.emptyTitle}>{t("practice.noQuestions")}</Text>
         {!!hydrateError && <Text style={styles.errorText}>{hydrateError}</Text>}
         <TouchableOpacity
           style={styles.primaryButton}
           onPress={() => router.back()}
         >
-          <Text style={styles.primaryButtonText}>Back</Text>
+          <Text style={styles.primaryButtonText}>{t("practice.back")}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -379,21 +418,35 @@ export default function InteractiveQuizScreen({ route }: Props) {
 
   if (isFinished) {
     return (
-      <View style={styles.screenCenter}>
+      <View
+        style={[
+          styles.screenCenter,
+          { backgroundColor: isDark ? "#08111F" : "#FFFFFF" },
+        ]}
+      >
         <Ionicons name="trophy" size={42} color={COLORS.primary} />
-        <Text style={styles.completeTitle}>Practice Complete</Text>
-        <Text style={styles.completeText}>
-          Final score: {correctCount}/{questions.length}
+        <Text style={styles.completeTitle}>
+          {t("practice.practiceComplete")}
         </Text>
-        {!!saveStatusText && <Text style={styles.saveStatusText}>{saveStatusText}</Text>}
+        <Text style={styles.completeText}>
+          {t("practice.finalScore", {
+            correct: correctCount,
+            total: questions.length,
+          })}
+        </Text>
+        {!!saveStatusText && (
+          <Text style={styles.saveStatusText}>{saveStatusText}</Text>
+        )}
         {isSavingAttempt ? (
           <ActivityIndicator size="small" color={COLORS.primary} />
         ) : null}
         <TouchableOpacity
           style={styles.primaryButton}
-          onPress={() => router.replace("/practice-hub")}
+          onPress={() => router.replace("/(tabs)/practice-hub")}
         >
-          <Text style={styles.primaryButtonText}>Back to Practice Hub</Text>
+          <Text style={styles.primaryButtonText}>
+            {t("practice.backToHub")}
+          </Text>
         </TouchableOpacity>
       </View>
     );
@@ -401,13 +454,21 @@ export default function InteractiveQuizScreen({ route }: Props) {
 
   return (
     <ScrollView
-      style={styles.screen}
+      style={[
+        styles.screen,
+        { backgroundColor: isDark ? "#08111F" : "#F5F9FF" },
+      ]}
       contentContainerStyle={styles.screenContent}
       showsVerticalScrollIndicator={false}
       keyboardShouldPersistTaps="handled"
     >
       <View style={styles.headerRow}>
-        <Text style={styles.progressText}>Question {progressLabel}</Text>
+        <Text style={styles.progressText}>
+          {t("practice.question", {
+            current: Math.min(currentIndex + 1, questions.length),
+            total: questions.length,
+          })}
+        </Text>
         <View style={[styles.timerPill, timeLeft <= 7 && styles.timerUrgent]}>
           <Ionicons name="timer-outline" size={14} color="white" />
           <Text style={styles.timerText}>{timeLeft}s</Text>
@@ -419,7 +480,7 @@ export default function InteractiveQuizScreen({ route }: Props) {
 
       {!attempted && (
         <View style={styles.hintBox}>
-          <Text style={styles.hintTitle}>Hint</Text>
+          <Text style={styles.hintTitle}>{t("practice.hint")}</Text>
           <Text style={styles.hintText}>{getSafeHintText(currentQ)}</Text>
         </View>
       )}
@@ -431,7 +492,7 @@ export default function InteractiveQuizScreen({ route }: Props) {
             onChangeText={setShortAnswer}
             style={styles.input}
             editable={!attempted && !isGrading && !timeUp}
-            placeholder="Type your answer"
+            placeholder={t("practice.typeYourAnswer")}
             placeholderTextColor={COLORS.textLight}
             multiline
           />
@@ -444,7 +505,9 @@ export default function InteractiveQuizScreen({ route }: Props) {
             onPress={() => submitForGrading(shortAnswer)}
             disabled={!shortAnswer.trim() || attempted || isGrading || timeUp}
           >
-            <Text style={styles.primaryButtonText}>Submit Answer</Text>
+            <Text style={styles.primaryButtonText}>
+              {t("practice.submitAnswer")}
+            </Text>
           </TouchableOpacity>
         </View>
       ) : (
@@ -461,7 +524,9 @@ export default function InteractiveQuizScreen({ route }: Props) {
             >
               <View style={styles.optionRow}>
                 <View style={styles.optionLetterBadge}>
-                  <Text style={styles.optionLetterText}>{getOptionLetter(index)}</Text>
+                  <Text style={styles.optionLetterText}>
+                    {getOptionLetter(index)}
+                  </Text>
                 </View>
                 <Text style={styles.optionText}>{option}</Text>
               </View>
@@ -473,7 +538,7 @@ export default function InteractiveQuizScreen({ route }: Props) {
       {isGrading && (
         <View style={styles.gradingRow}>
           <ActivityIndicator size="small" color={COLORS.primary} />
-          <Text style={styles.gradingText}>AI is grading your answer...</Text>
+          <Text style={styles.gradingText}>{t("practice.grading")}</Text>
         </View>
       )}
 
@@ -490,7 +555,11 @@ export default function InteractiveQuizScreen({ route }: Props) {
               isCorrect ? styles.correctText : styles.wrongText,
             ]}
           >
-            {timeUp ? "Time's Up" : isCorrect ? "Correct" : "Not Correct"}
+            {timeUp
+              ? t("practice.timeUpState")
+              : isCorrect
+                ? t("practice.correct")
+                : t("practice.notCorrect")}
           </Text>
           <Text style={styles.feedbackText}>{feedbackText}</Text>
 
@@ -500,23 +569,29 @@ export default function InteractiveQuizScreen({ route }: Props) {
               onPress={() => setPostExplanationVisible((prev) => !prev)}
             >
               <Text style={styles.secondaryActionText}>
-                {postExplanationVisible ? "Hide Explanation" : "Show Explanation"}
+                {postExplanationVisible
+                  ? t("practice.hideExplanation")
+                  : t("practice.showExplanation")}
               </Text>
             </TouchableOpacity>
           </View>
 
           {postExplanationVisible && (
             <View style={styles.infoCard}>
-              <Text style={styles.infoTitle}>Explanation</Text>
+              <Text style={styles.infoTitle}>{t("practice.explanation")}</Text>
               <Text style={styles.infoText}>
-                {currentQ.explanation ||
-                  "Compare your answer with the textbook explanation for this concept."}
+                {currentQ.explanation || t("practice.compareWithExplanation")}
               </Text>
             </View>
           )}
 
-          <TouchableOpacity style={[styles.primaryButton, styles.nextButton]} onPress={goNext}>
-            <Text style={styles.primaryButtonText}>Next Question</Text>
+          <TouchableOpacity
+            style={[styles.primaryButton, styles.nextButton]}
+            onPress={goNext}
+          >
+            <Text style={styles.primaryButtonText}>
+              {t("practice.nextQuestion")}
+            </Text>
           </TouchableOpacity>
         </View>
       )}

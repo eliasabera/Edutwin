@@ -633,6 +633,7 @@ export type ResolvedTextbookData = {
   grade_served: number;
   title: string;
   textbook_url: string;
+  cover_image_url?: string | null;
   source: "database" | "catalog";
 };
 
@@ -643,6 +644,7 @@ export type LabCanvasResource = {
   title: string;
   topic: string;
   url: string;
+  gradeLevel?: number;
 };
 
 type SubmitPracticeAttemptPayload = {
@@ -1474,6 +1476,10 @@ export const fetchResolvedTextbook = async (
           : Number(normalizedGrade),
       title: typeof record.title === "string" ? record.title : "Textbook",
       textbook_url: textbookUrl,
+      cover_image_url:
+        typeof record.cover_image_url === "string"
+          ? record.cover_image_url.trim() || null
+          : null,
       source: record.source === "database" ? "database" : "catalog",
     };
   } catch {
@@ -1489,6 +1495,16 @@ const extractSubjectFromUrl = (url: string): SubjectName | null => {
   if (raw === "physics") return "physics";
   if (raw === "biology") return "biology";
   return null;
+};
+
+const extractGradeFromUrl = (url: string): number | null => {
+  const match = String(url || "").match(/\/grade(\d+)\//i);
+  if (!match?.[1]) {
+    return null;
+  }
+
+  const parsed = Number.parseInt(match[1], 10);
+  return Number.isFinite(parsed) ? parsed : null;
 };
 
 export const fetchAllCanvasLabResources = async (): Promise<LabCanvasResource[]> => {
@@ -1526,6 +1542,21 @@ export const fetchAllCanvasLabResources = async (): Promise<LabCanvasResource[]>
           return null;
         }
 
+        const gradeFromField =
+          typeof record.grade_level === "number"
+            ? record.grade_level
+            : typeof record.grade_level === "string"
+              ? Number.parseInt(record.grade_level, 10)
+              : typeof record.grade === "number"
+                ? record.grade
+                : typeof record.grade === "string"
+                  ? Number.parseInt(record.grade, 10)
+                  : null;
+
+        const resolvedGrade = Number.isFinite(Number(gradeFromField))
+          ? Number(gradeFromField)
+          : extractGradeFromUrl(url);
+
         const explicitSubject =
           typeof record.subject === "string" ? String(record.subject).toLowerCase().trim() : "";
 
@@ -1556,6 +1587,7 @@ export const fetchAllCanvasLabResources = async (): Promise<LabCanvasResource[]>
             (typeof record.topic === "string" && record.topic.trim()) ||
             "Canvas model",
           url: normalizeCanvasUrl(url, "canvas"),
+          gradeLevel: resolvedGrade ?? undefined,
         };
       })
       .filter(Boolean) as LabCanvasResource[];

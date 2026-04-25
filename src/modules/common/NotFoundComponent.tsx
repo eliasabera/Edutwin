@@ -3,16 +3,19 @@ import { View, Text, StyleSheet } from "react-native";
 import { Link, Stack } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { COLORS } from "../../../shared/constants/colors";
+import { useTranslation } from "../../../shared/i18n";
 
 export default function NotFoundComponent() {
+  const { t } = useTranslation();
+
   return (
     <>
-      <Stack.Screen options={{ title: "Oops!" }} />
+      <Stack.Screen options={{ title: t("common.oops") }} />
       <View style={styles.container}>
         <Ionicons name="alert-circle-outline" size={80} color={COLORS.error} />
-        <Text style={styles.title}>Page Not Found</Text>
+        <Text style={styles.title}>{t("common.pageNotFound")}</Text>
         <Link href="/" style={styles.link}>
-          <Text style={styles.linkText}>Go back to Home</Text>
+          <Text style={styles.linkText}>{t("common.goBackHome")}</Text>
         </Link>
       </View>
     </>

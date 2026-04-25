@@ -4,6 +4,7 @@ import {
   fetchTextbookSelectionAsk,
   type TextbookResourceItem,
 } from "@/shared/services/ai-service";
+import { useTranslation } from "@/shared/i18n";
 import { useStudentProfile } from "@/shared/store/user-store";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
@@ -115,7 +116,9 @@ const sanitizeSelectionAnswerText = (text: string) => {
   cleaned = cleaned
     .split("\n")
     .map((line) => line.trim())
-    .filter((line, index, lines) => line || (index > 0 && lines[index - 1] !== ""))
+    .filter(
+      (line, index, lines) => line || (index > 0 && lines[index - 1] !== ""),
+    )
     .join("\n")
     .trim();
 
@@ -124,7 +127,9 @@ const sanitizeSelectionAnswerText = (text: string) => {
     cleaned = cleaned.replace(/([.!?])\s+(?=[A-Z0-9])/g, "$1\n");
   }
 
-  return cleaned || "I could not generate a clear answer from the selected text.";
+  return (
+    cleaned || "I could not generate a clear answer from the selected text."
+  );
 };
 
 const toAnswerParagraphs = (text: string): string[] =>
@@ -133,16 +138,78 @@ const toAnswerParagraphs = (text: string): string[] =>
     .map((part) => part.trim())
     .filter(Boolean);
 
+const compactSelectionPreview = (text: string, maxLength = 180): string => {
+  const normalized = String(text || "").replace(/\s+/g, " ").trim();
+  if (!normalized) return "";
+  if (normalized.length <= maxLength) return normalized;
+  return `${normalized.slice(0, maxLength - 1)}...`;
+};
+
 export default function TextbookReaderScreen({
   lesson,
 }: TextbookReaderScreenProps) {
   const router = useRouter();
+  const { language } = useTranslation();
+  const isOm = language === "om";
+  const copy = {
+    noTextbook: isOm ? "URL kitaabaa hin argamne." : "No textbook URL found.",
+    selectTextbook: isOm
+      ? "Mee kuusaa irraa kitaaba filadhu."
+      : "Please select a textbook from the library.",
+    openingTextbook: isOm ? "Kitaaba banaa jira..." : "Opening textbook...",
+    askAi: isOm ? "AI gaafadhu" : "Ask AI",
+    backToList: isOm ? "Tarreetti deebi'i" : "Back to list",
+    resourcesTitle: isOm ? "Qabeenya Canvas fi AR" : "Canvas and AR resources",
+    openingCanvas: isOm
+      ? "Moodeela canvas banaa jira..."
+      : "Opening canvas model...",
+    filterTitle: isOm
+      ? "Qabeenya barnootaa calali"
+      : "Filter learning resources",
+    filterHint: isOm
+      ? "Boqonnaa fi mata-duree filadhu; Canvas yookaan AR banuun kitaaba keessaa itti fufi."
+      : "Pick chapter and topic, then open Canvas or AR without leaving the textbook screen.",
+    chapter: isOm ? "Boqonnaa" : "Chapter",
+    canvas: "Canvas",
+    ar: "AR",
+    noCanvasInChapter: isOm
+      ? "Boqonnaa kana keessatti moodeelli canvas hin jiru."
+      : "No canvas models in this chapter.",
+    noArInChapter: isOm
+      ? "Boqonnaa kana keessatti moodeelli AR hin jiru."
+      : "No AR models in this chapter.",
+    loadingModels: isOm
+      ? "Moodeloota kitaabaa fe'aa jira..."
+      : "Loading textbook models...",
+    noModelsFilter: isOm
+      ? "Calalliin kanaaf moodeloonni hin argamne."
+      : "No models found for this textbook/filter.",
+    askAiHighlighted: isOm
+      ? "Barreeffama filatame irratti AI gaafadhu"
+      : "Ask AI about highlighted text",
+    selectedText: isOm ? "Barreeffama filatame" : "Selected text",
+    selectedPlaceholder: isOm
+      ? "Kitaabicha keessaa barreeffama filadhu, yookaan asitti maxxansi."
+      : "Highlight text from the textbook, or paste/type excerpt here.",
+    yourQuestion: isOm ? "Gaaffii kee" : "Your question",
+    questionPlaceholder: isOm
+      ? "Barreeffama filatame irratti waan barbaadde gaafadhu..."
+      : "Ask anything about the highlighted text...",
+    thinking: isOm ? "Yaadaa jira..." : "Thinking...",
+    aiAnswer: isOm ? "Deebii AI" : "AI answer",
+    latestHighlight: isOm ? "Filannoo haaraa" : "Latest highlight",
+    useLatestHighlight: isOm
+      ? "Filannoo haaraa fayyadami"
+      : "Use latest highlight",
+  };
   const insets = useSafeAreaInsets();
   const studentProfile = useStudentProfile();
   const textbookUrl = lesson?.textbookUrl?.trim();
   const viewerUrl = textbookUrl ? textbookUrl : "";
   const [showResourceModal, setShowResourceModal] = useState(false);
-  const [activeResource, setActiveResource] = useState<LearningResource | null>(null);
+  const [activeResource, setActiveResource] = useState<LearningResource | null>(
+    null,
+  );
   const [resources, setResources] = useState<LearningResource[]>([]);
   const [isLoadingResources, setIsLoadingResources] = useState(false);
   const [chapterFilter, setChapterFilter] = useState("All");
@@ -160,7 +227,12 @@ export default function TextbookReaderScreen({
 
   const subjectName = useMemo(() => {
     const lowered = (lesson?.subject || "").toLowerCase();
-    if (lowered === "biology" || lowered === "chemistry" || lowered === "physics" || lowered === "math") {
+    if (
+      lowered === "biology" ||
+      lowered === "chemistry" ||
+      lowered === "physics" ||
+      lowered === "math"
+    ) {
       return lowered;
     }
     return "physics";
@@ -173,13 +245,13 @@ export default function TextbookReaderScreen({
       return Number(match[1]);
     };
 
-    const sortedChapters = Array.from(new Set(resources.map((item) => item.chapter))).sort(
-      (a, b) => {
-        const numDiff = chapterSortValue(a) - chapterSortValue(b);
-        if (numDiff !== 0) return numDiff;
-        return a.localeCompare(b);
-      },
-    );
+    const sortedChapters = Array.from(
+      new Set(resources.map((item) => item.chapter)),
+    ).sort((a, b) => {
+      const numDiff = chapterSortValue(a) - chapterSortValue(b);
+      if (numDiff !== 0) return numDiff;
+      return a.localeCompare(b);
+    });
 
     return ["All", ...sortedChapters];
   }, [resources]);
@@ -193,7 +265,10 @@ export default function TextbookReaderScreen({
   );
 
   const groupedResources = useMemo(() => {
-    const grouped: Record<string, { canvas: LearningResource[]; ar: LearningResource[] }> = {};
+    const grouped: Record<
+      string,
+      { canvas: LearningResource[]; ar: LearningResource[] }
+    > = {};
 
     const chapterSortValue = (chapter: string) => {
       const match = String(chapter || "").match(/chapter\s*(\d+)/i);
@@ -216,11 +291,14 @@ export default function TextbookReaderScreen({
     return Object.entries(grouped)
       .map(([chapter, entries]) => ({
         chapter,
-        canvas: [...entries.canvas].sort((a, b) => a.title.localeCompare(b.title)),
+        canvas: [...entries.canvas].sort((a, b) =>
+          a.title.localeCompare(b.title),
+        ),
         ar: [...entries.ar].sort((a, b) => a.title.localeCompare(b.title)),
       }))
       .sort((a, b) => {
-        const numDiff = chapterSortValue(a.chapter) - chapterSortValue(b.chapter);
+        const numDiff =
+          chapterSortValue(a.chapter) - chapterSortValue(b.chapter);
         if (numDiff !== 0) return numDiff;
         return a.chapter.localeCompare(b.chapter);
       });
@@ -234,7 +312,8 @@ export default function TextbookReaderScreen({
     subjectName === "math"
       ? subjectName
       : "physics";
-  const requestGrade = String(lesson?.grade || studentProfile.grade || "9").trim() || "9";
+  const requestGrade =
+    String(lesson?.grade || studentProfile.grade || "9").trim() || "9";
 
   useEffect(() => {
     let isMounted = true;
@@ -277,8 +356,8 @@ export default function TextbookReaderScreen({
     };
   }, [requestGrade, requestSubject, textbookUrl]);
 
-  const askFromSelection = async () => {
-    const normalizedSelection = selectedTextDraft.trim();
+  const askFromSelection = async (selectedTextForQuestion: string) => {
+    const normalizedSelection = selectedTextForQuestion.trim();
     const normalizedQuestion = selectionQuestion.trim();
     if (!normalizedQuestion) {
       return;
@@ -295,7 +374,8 @@ export default function TextbookReaderScreen({
         question: normalizedQuestion,
         selected_text: normalizedSelection,
         full_name:
-          typeof studentProfile.fullName === "string" && studentProfile.fullName.trim()
+          typeof studentProfile.fullName === "string" &&
+          studentProfile.fullName.trim()
             ? studentProfile.fullName
             : "Student",
         support_subjects: Array.isArray(studentProfile.supportSubjects)
@@ -314,9 +394,15 @@ export default function TextbookReaderScreen({
             ? studentProfile.performanceBand
             : "unknown",
       });
-      setSelectionAnswer(sanitizeSelectionAnswerText(response.response || "No answer generated."));
+      setSelectionAnswer(
+        sanitizeSelectionAnswerText(
+          response.response || "No answer generated.",
+        ),
+      );
     } catch {
-      setSelectionAnswer("I could not process this selection right now. Please try again.");
+      setSelectionAnswer(
+        "I could not process this selection right now. Please try again.",
+      );
     } finally {
       setIsAskingSelection(false);
     }
@@ -334,7 +420,10 @@ export default function TextbookReaderScreen({
         }
       }
 
-      if (item.id.toLowerCase().includes("heart") || item.title.toLowerCase().includes("heart")) {
+      if (
+        item.id.toLowerCase().includes("heart") ||
+        item.title.toLowerCase().includes("heart")
+      ) {
         setShowResourceModal(false);
         setActiveResource(null);
         router.push("/ar-view/heart-demo" as never);
@@ -378,8 +467,8 @@ export default function TextbookReaderScreen({
   if (!textbookUrl) {
     return (
       <View style={[styles.emptyWrap, { paddingTop: insets.top + 16 }]}>
-        <Text style={styles.emptyTitle}>No textbook URL found.</Text>
-        <Text style={styles.emptyHint}>Please select a textbook from the library.</Text>
+        <Text style={styles.emptyTitle}>{copy.noTextbook}</Text>
+        <Text style={styles.emptyHint}>{copy.selectTextbook}</Text>
       </View>
     );
   }
@@ -387,7 +476,9 @@ export default function TextbookReaderScreen({
   return (
     <View style={styles.screen} pointerEvents="box-none">
       <WebView
-        source={{ uri: `https://mozilla.github.io/pdf.js/web/viewer.html?file=${encodeURIComponent(viewerUrl)}` }}
+        source={{
+          uri: `https://mozilla.github.io/pdf.js/web/viewer.html?file=${encodeURIComponent(viewerUrl)}`,
+        }}
         style={styles.webView}
         originWhitelist={["*"]}
         startInLoadingState
@@ -400,9 +491,14 @@ export default function TextbookReaderScreen({
             }
             const nextText =
               typeof parsed?.text === "string" ? parsed.text.trim() : "";
-            setSelectedText(nextText);
             if (!nextText) {
-              setShowAskAiModal(false);
+              // Ignore empty bridge updates from accidental touches so highlight/ask flow is stable.
+              return;
+            }
+
+            setSelectedText(nextText);
+            if (!showAskAiModal || !selectedTextDraft.trim()) {
+              setSelectedTextDraft(nextText);
             }
           } catch {
             // ignore malformed bridge messages
@@ -411,16 +507,22 @@ export default function TextbookReaderScreen({
         renderLoading={() => (
           <View style={styles.loaderWrap}>
             <ActivityIndicator size="small" color="#0B5FFF" />
-            <Text style={styles.loaderText}>Opening textbook...</Text>
+            <Text style={styles.loaderText}>{copy.openingTextbook}</Text>
           </View>
         )}
       />
 
       {showResourceButton ? (
-        <View style={[styles.bubbleWrap, { top: insets.top + 10 }]} pointerEvents="box-none">
+        <View
+          style={[styles.bubbleWrap, { top: insets.top + 10 }]}
+          pointerEvents="box-none"
+        >
           <Animated.View style={{ transform: [{ scale: triggerScale }] }}>
             <Pressable
-              style={({ pressed }) => [styles.circleTrigger, pressed && styles.circleTriggerPressed]}
+              style={({ pressed }) => [
+                styles.circleTrigger,
+                pressed && styles.circleTriggerPressed,
+              ]}
               onPress={() => {
                 setChapterFilter("All");
                 setShowResourceModal(true);
@@ -432,16 +534,28 @@ export default function TextbookReaderScreen({
         </View>
       ) : null}
 
-      <View style={[styles.selectionAskWrap, { top: insets.top + 62 }]} pointerEvents="box-none">
+      <View
+        style={[styles.selectionAskWrap, { top: insets.top + 62 }]}
+        pointerEvents="box-none"
+      >
         <Pressable
-          style={({ pressed }) => [styles.selectionAskButton, pressed && styles.selectionAskButtonPressed]}
+          style={({ pressed }) => [
+            styles.selectionAskButton,
+            pressed && styles.selectionAskButtonPressed,
+          ]}
           onPress={() => {
-            setSelectedTextDraft(selectedText);
+            if (selectedText.trim()) {
+              setSelectedTextDraft(selectedText);
+            }
             setShowAskAiModal(true);
           }}
         >
-          <Ionicons name="chatbubble-ellipses-outline" size={16} color="#FFFFFF" />
-          <Text style={styles.selectionAskText}>Ask AI</Text>
+          <Ionicons
+            name="chatbubble-ellipses-outline"
+            size={16}
+            color="#FFFFFF"
+          />
+          <Text style={styles.selectionAskText}>{copy.askAi}</Text>
         </Pressable>
       </View>
 
@@ -458,7 +572,7 @@ export default function TextbookReaderScreen({
         }}
       >
         <View style={styles.modalBackdrop}>
-          <View style={[styles.modalCard, { paddingTop: insets.top + 8 }]}> 
+          <View style={[styles.modalCard, { paddingTop: insets.top + 8 }]}>
             <View style={styles.modalHeader}>
               {activeResource ? (
                 <Pressable
@@ -466,10 +580,10 @@ export default function TextbookReaderScreen({
                   onPress={() => setActiveResource(null)}
                 >
                   <Ionicons name="chevron-back" size={18} color="#0B5FFF" />
-                  <Text style={styles.inlineBackText}>Back to list</Text>
+                  <Text style={styles.inlineBackText}>{copy.backToList}</Text>
                 </Pressable>
               ) : (
-                <Text style={styles.modalTitle}>Canvas and AR resources</Text>
+                <Text style={styles.modalTitle}>{copy.resourcesTitle}</Text>
               )}
 
               <Pressable
@@ -492,18 +606,18 @@ export default function TextbookReaderScreen({
                 renderLoading={() => (
                   <View style={styles.loaderWrap}>
                     <ActivityIndicator size="small" color="#0B5FFF" />
-                    <Text style={styles.loaderText}>Opening canvas model...</Text>
+                    <Text style={styles.loaderText}>{copy.openingCanvas}</Text>
                   </View>
                 )}
               />
             ) : (
               <ScrollView contentContainerStyle={styles.canvasChooserWrap}>
-                <Text style={styles.canvasChooserTitle}>Filter learning resources</Text>
-                <Text style={styles.canvasChooserHint}>
-                  Pick chapter and topic, then open Canvas or AR without leaving the textbook screen.
+                <Text style={styles.canvasChooserTitle}>
+                  {copy.filterTitle}
                 </Text>
+                <Text style={styles.canvasChooserHint}>{copy.filterHint}</Text>
 
-                <Text style={styles.filterLabel}>Chapter</Text>
+                <Text style={styles.filterLabel}>{copy.chapter}</Text>
                 <View style={styles.filterRow}>
                   {chapterOptions.map((option) => (
                     <Pressable
@@ -517,7 +631,8 @@ export default function TextbookReaderScreen({
                       <Text
                         style={[
                           styles.filterChipText,
-                          chapterFilter === option && styles.filterChipTextActive,
+                          chapterFilter === option &&
+                            styles.filterChipTextActive,
                         ]}
                       >
                         {option}
@@ -529,9 +644,11 @@ export default function TextbookReaderScreen({
                 {groupedResources.length > 0 ? (
                   groupedResources.map((group) => (
                     <View key={group.chapter} style={styles.chapterGroupCard}>
-                      <Text style={styles.chapterGroupTitle}>{group.chapter}</Text>
+                      <Text style={styles.chapterGroupTitle}>
+                        {group.chapter}
+                      </Text>
 
-                      <Text style={styles.groupTypeTitle}>Canvas</Text>
+                      <Text style={styles.groupTypeTitle}>{copy.canvas}</Text>
                       {group.canvas.length > 0 ? (
                         group.canvas.map((item) => (
                           <Pressable
@@ -540,22 +657,34 @@ export default function TextbookReaderScreen({
                             onPress={() => openResource(item)}
                           >
                             <View style={styles.canvasChoiceLeft}>
-                              <Ionicons name="cube-outline" size={18} color="#0B5FFF" />
+                              <Ionicons
+                                name="cube-outline"
+                                size={18}
+                                color="#0B5FFF"
+                              />
                               <View>
-                                <Text style={styles.canvasChoiceTitle}>{item.title}</Text>
+                                <Text style={styles.canvasChoiceTitle}>
+                                  {item.title}
+                                </Text>
                                 <Text style={styles.canvasChoiceSubtitle}>
                                   {item.topic} • CANVAS
                                 </Text>
                               </View>
                             </View>
-                            <Ionicons name="chevron-forward" size={18} color="#0B5FFF" />
+                            <Ionicons
+                              name="chevron-forward"
+                              size={18}
+                              color="#0B5FFF"
+                            />
                           </Pressable>
                         ))
                       ) : (
-                        <Text style={styles.groupEmptyText}>No canvas models in this chapter.</Text>
+                        <Text style={styles.groupEmptyText}>
+                          {copy.noCanvasInChapter}
+                        </Text>
                       )}
 
-                      <Text style={styles.groupTypeTitle}>AR</Text>
+                      <Text style={styles.groupTypeTitle}>{copy.ar}</Text>
                       {group.ar.length > 0 ? (
                         group.ar.map((item) => (
                           <Pressable
@@ -564,19 +693,31 @@ export default function TextbookReaderScreen({
                             onPress={() => openResource(item)}
                           >
                             <View style={styles.canvasChoiceLeft}>
-                              <Ionicons name="scan-outline" size={18} color="#0B5FFF" />
+                              <Ionicons
+                                name="scan-outline"
+                                size={18}
+                                color="#0B5FFF"
+                              />
                               <View>
-                                <Text style={styles.canvasChoiceTitle}>{item.title}</Text>
+                                <Text style={styles.canvasChoiceTitle}>
+                                  {item.title}
+                                </Text>
                                 <Text style={styles.canvasChoiceSubtitle}>
                                   {item.topic} • AR
                                 </Text>
                               </View>
                             </View>
-                            <Ionicons name="chevron-forward" size={18} color="#0B5FFF" />
+                            <Ionicons
+                              name="chevron-forward"
+                              size={18}
+                              color="#0B5FFF"
+                            />
                           </Pressable>
                         ))
                       ) : (
-                        <Text style={styles.groupEmptyText}>No AR models in this chapter.</Text>
+                        <Text style={styles.groupEmptyText}>
+                          {copy.noArInChapter}
+                        </Text>
                       )}
                     </View>
                   ))
@@ -584,8 +725,8 @@ export default function TextbookReaderScreen({
                   <View style={styles.emptyFilterState}>
                     <Text style={styles.emptyFilterText}>
                       {isLoadingResources
-                        ? "Loading textbook models..."
-                        : "No models found for this textbook/filter."}
+                        ? copy.loadingModels
+                        : copy.noModelsFilter}
                     </Text>
                   </View>
                 )}
@@ -602,9 +743,9 @@ export default function TextbookReaderScreen({
         onRequestClose={() => setShowAskAiModal(false)}
       >
         <View style={styles.modalBackdrop}>
-          <View style={[styles.askModalCard, { paddingTop: insets.top + 8 }]}> 
+          <View style={[styles.askModalCard, { paddingTop: insets.top + 8 }]}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Ask AI about highlighted text</Text>
+              <Text style={styles.modalTitle}>{copy.askAiHighlighted}</Text>
               <Pressable
                 onPress={() => setShowAskAiModal(false)}
                 style={styles.modalCloseButton}
@@ -614,21 +755,41 @@ export default function TextbookReaderScreen({
             </View>
 
             <ScrollView contentContainerStyle={styles.askModalContent}>
-              <Text style={styles.askLabel}>Selected text</Text>
+              {selectedText.trim() ? (
+                <View style={styles.selectionPreviewCard}>
+                  <Text style={styles.askLabel}>{copy.latestHighlight}</Text>
+                  <Text style={styles.selectionPreviewText}>
+                    {compactSelectionPreview(selectedText)}
+                  </Text>
+                  <Pressable
+                    onPress={() => setSelectedTextDraft(selectedText)}
+                    style={({ pressed }) => [
+                      styles.useSelectionButton,
+                      pressed && styles.useSelectionButtonPressed,
+                    ]}
+                  >
+                    <Text style={styles.useSelectionButtonText}>
+                      {copy.useLatestHighlight}
+                    </Text>
+                  </Pressable>
+                </View>
+              ) : null}
+
+              <Text style={styles.askLabel}>{copy.selectedText}</Text>
               <TextInput
                 value={selectedTextDraft}
                 onChangeText={setSelectedTextDraft}
-                placeholder="Highlight text from the textbook, or paste/type excerpt here."
+                placeholder={copy.selectedPlaceholder}
                 placeholderTextColor="#7E8EA8"
                 multiline
                 style={styles.askInput}
               />
 
-              <Text style={styles.askLabel}>Your question</Text>
+              <Text style={styles.askLabel}>{copy.yourQuestion}</Text>
               <TextInput
                 value={selectionQuestion}
                 onChangeText={setSelectionQuestion}
-                placeholder="Ask anything about the highlighted text..."
+                placeholder={copy.questionPlaceholder}
                 placeholderTextColor="#7E8EA8"
                 multiline
                 style={styles.askInput}
@@ -636,8 +797,10 @@ export default function TextbookReaderScreen({
 
               <Pressable
                 onPress={() => {
-                  setSelectedText(selectedTextDraft);
-                  void askFromSelection();
+                  const latestHighlight = selectedText.trim() || selectedTextDraft;
+                  setSelectedText(latestHighlight);
+                  setSelectedTextDraft(latestHighlight);
+                  void askFromSelection(latestHighlight);
                 }}
                 disabled={!selectionQuestion.trim() || isAskingSelection}
                 style={({ pressed }) => [
@@ -648,13 +811,13 @@ export default function TextbookReaderScreen({
                 ]}
               >
                 <Text style={styles.askSubmitText}>
-                  {isAskingSelection ? "Thinking..." : "Ask AI"}
+                  {isAskingSelection ? copy.thinking : copy.askAi}
                 </Text>
               </Pressable>
 
               {selectionAnswer ? (
                 <View style={styles.answerCard}>
-                  <Text style={styles.askLabel}>AI answer</Text>
+                  <Text style={styles.askLabel}>{copy.aiAnswer}</Text>
                   <ScrollView
                     style={styles.answerScroll}
                     contentContainerStyle={styles.answerScrollContent}
@@ -957,10 +1120,29 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   selectionPreviewText: {
+    marginTop: 4,
     color: "#2A3E60",
     fontSize: 13,
     fontWeight: "600",
     lineHeight: 19,
+  },
+  useSelectionButton: {
+    marginTop: 10,
+    alignSelf: "flex-start",
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#0B5FFF",
+    backgroundColor: "#EAF2FF",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  useSelectionButtonPressed: {
+    opacity: 0.85,
+  },
+  useSelectionButtonText: {
+    color: "#0B5FFF",
+    fontSize: 12,
+    fontWeight: "800",
   },
   askInput: {
     minHeight: 96,

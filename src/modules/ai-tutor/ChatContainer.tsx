@@ -6,16 +6,27 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
+  Keyboard,
+  KeyboardEvent,
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
+  useColorScheme,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS } from "../../../shared/constants/colors";
+import {
+  getEffectiveThemeMode,
+  useAppSettings,
+} from "../../../shared/store/settings-store";
+import {
+  classifyTutorPrompt,
+  recordTutorInteraction,
+} from "../../../shared/services/gamification";
 import {
   fetchLatestChatHistory,
   generateAIResponseStream,
@@ -83,6 +94,12 @@ const dedupeMessages = (items: ChatMessage[]) => {
 export default function ChatContainer() {
   const insets = useSafeAreaInsets();
   const tabBarHeight = useBottomTabBarHeight();
+  const appSettings = useAppSettings();
+  const deviceTheme = useColorScheme();
+  const isDark =
+    appSettings.themeMode === "system"
+      ? (deviceTheme ?? getEffectiveThemeMode()) === "dark"
+      : appSettings.themeMode === "dark";
   const params = useLocalSearchParams<{
     prefill?: string | string[];
     prefillKey?: string | string[];
@@ -94,6 +111,9 @@ export default function ChatContainer() {
 
   const [inputText, setInputText] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [isSubjectMenuOpen, setIsSubjectMenuOpen] = useState(false);
   const [selectedSubject, setSelectedSubject] = useState<SubjectName>(
     studentProfile.supportSubjects[0] ||
       studentProfile.strongSubjects[0] ||
@@ -120,7 +140,9 @@ export default function ChatContainer() {
     [studentProfile.fullName, studentProfile.twinName],
   );
 
-  const mapPersistedToChatMessage = (item: PersistedChatMessage): ChatMessage => {
+  const mapPersistedToChatMessage = (
+    item: PersistedChatMessage,
+  ): ChatMessage => {
     const date = item.timestamp ? new Date(item.timestamp) : new Date();
     const timestamp = Number.isNaN(date.getTime())
       ? getTimeLabel()
@@ -176,14 +198,6 @@ export default function ChatContainer() {
     flatListRef.current?.scrollToEnd({ animated: true });
   };
 
-  const cycleSubject = () => {
-    const currentIndex = subjectOptions.findIndex(
-      (subject) => subject.value === selectedSubject,
-    );
-    const nextIndex = (currentIndex + 1) % subjectOptions.length;
-    setSelectedSubject(subjectOptions[nextIndex].value);
-  };
-
   const selectedSubjectLabel =
     subjectOptions.find((subject) => subject.value === selectedSubject)
       ?.label ?? "Subject";
@@ -204,6 +218,8 @@ export default function ChatContainer() {
       return;
     }
 
+    recordTutorInteraction(selectedSubject, classifyTutorPrompt(trimmed));
+
     const userMessage: ChatMessage = {
       id: `user-${Date.now()}`,
       text: trimmed,
@@ -223,6 +239,7 @@ export default function ChatContainer() {
 
     setMessages((current) => [...current, userMessage, aiPlaceholder]);
     setInputText("");
+    setIsSubjectMenuOpen(false);
     setIsLoading(true);
     scrollToEnd();
 
@@ -276,6 +293,26 @@ export default function ChatContainer() {
   };
 
   useEffect(() => {
+    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+
+    const showSub = Keyboard.addListener(showEvent, (event: KeyboardEvent) => {
+      setIsKeyboardVisible(true);
+      setKeyboardHeight(event.endCoordinates?.height ?? 0);
+      setIsSubjectMenuOpen(false);
+    });
+    const hideSub = Keyboard.addListener(hideEvent, () => {
+      setIsKeyboardVisible(false);
+      setKeyboardHeight(0);
+    });
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+
+  useEffect(() => {
     if (!normalizedPrefill || !normalizedPrefill.trim()) {
       return;
     }
@@ -302,12 +339,20 @@ export default function ChatContainer() {
 
   return (
     <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      style={[
+        styles.container,
+        { backgroundColor: isDark ? "#08111F" : "#FFFFFF" },
+      ]}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
       keyboardVerticalOffset={0}
     >
       <View style={styles.content}>
-        <View style={styles.backgroundLayer} />
+        <View
+          style={[
+            styles.backgroundLayer,
+            { backgroundColor: isDark ? "#08111F" : "#FFFFFF" },
+          ]}
+        />
         <View style={styles.bgOrbOne} />
         <View style={styles.bgOrbTwo} />
         <View style={styles.bgOrbThree} />
@@ -322,6 +367,7 @@ export default function ChatContainer() {
               text={item.text}
               isUser={item.isUser}
               timestamp={item.timestamp}
+              isDark={isDark}
               isTyping={
                 !item.isUser && isLoading && item.text.trim().length === 0
               }
@@ -331,7 +377,7 @@ export default function ChatContainer() {
             styles.listContent,
             {
               paddingTop: Math.max(insets.top, 16),
-              paddingBottom: 20,
+              paddingBottom: 12,
             },
           ]}
           keyboardDismissMode="on-drag"
@@ -340,7 +386,14 @@ export default function ChatContainer() {
           ListHeaderComponent={
             <View>
               <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>Conversation</Text>
+                <Text
+                  style={[
+                    styles.sectionTitle,
+                    { color: isDark ? "#AAB7CF" : "#5A6C87" },
+                  ]}
+                >
+                  Conversation
+                </Text>
                 {isLoading ? (
                   <ActivityIndicator size="small" color={COLORS.primary} />
                 ) : null}
@@ -354,13 +407,35 @@ export default function ChatContainer() {
           style={[
             styles.composerWrap,
             {
-              paddingBottom: Math.max(insets.bottom + tabBarHeight + 8, 12),
+              paddingBottom: isKeyboardVisible
+                ? Platform.OS === "android"
+                  ? Math.max(keyboardHeight + 12, 16)
+                  : Math.max(insets.bottom + 8, 12)
+                : Math.max(insets.bottom + tabBarHeight + 8, 12),
             },
           ]}
         >
-          <View style={styles.inputBar}>
+          <View
+            style={[
+              styles.inputBar,
+              {
+                backgroundColor: isDark
+                  ? "rgba(14,26,44,0.95)"
+                  : "rgba(255,255,255,0.92)",
+                borderColor: isDark
+                  ? "rgba(123,167,255,0.24)"
+                  : "rgba(11, 95, 255, 0.18)",
+              },
+            ]}
+          >
             <TextInput
-              style={styles.input}
+              style={[
+                styles.input,
+                {
+                  backgroundColor: isDark ? "#121C2E" : "#F5F8FF",
+                  color: isDark ? "#F4F7FB" : "#1A202C",
+                },
+              ]}
               placeholder={
                 isLoading
                   ? "EduTwin is thinking..."
@@ -368,20 +443,74 @@ export default function ChatContainer() {
               }
               value={inputText}
               onChangeText={setInputText}
-              placeholderTextColor={COLORS.textLight}
+              placeholderTextColor={isDark ? "#8FA1BF" : COLORS.textLight}
               editable={!isLoading}
+              contextMenuHidden={false}
               multiline
               textAlignVertical="top"
             />
-            <TouchableOpacity
-              style={styles.subjectBtn}
-              onPress={cycleSubject}
-              disabled={isLoading}
-              activeOpacity={0.85}
-            >
-              <Ionicons name="book-outline" size={16} color="white" />
-              <Text style={styles.subjectBtnText}>{selectedSubjectLabel}</Text>
-            </TouchableOpacity>
+            <View style={styles.subjectWrap}>
+              <TouchableOpacity
+                onPress={() => setIsSubjectMenuOpen((current) => !current)}
+                disabled={isLoading}
+                style={styles.subjectBtn}
+              >
+                <Ionicons name="book-outline" size={16} color="white" />
+                <Text style={styles.subjectBtnText}>{selectedSubjectLabel}</Text>
+                <Ionicons
+                  name={isSubjectMenuOpen ? "chevron-up" : "chevron-down"}
+                  size={14}
+                  color="white"
+                />
+              </TouchableOpacity>
+
+              {isSubjectMenuOpen ? (
+                <View
+                  style={[
+                    styles.subjectDropdown,
+                    {
+                      backgroundColor: isDark ? "#0F213B" : "#FFFFFF",
+                      borderColor: isDark ? "#2A3D62" : "#D5E3FA",
+                    },
+                  ]}
+                >
+                  {subjectOptions.map((subject) => {
+                    const isSelected = selectedSubject === subject.value;
+                    return (
+                      <TouchableOpacity
+                        key={subject.value}
+                        style={[
+                          styles.subjectOption,
+                          isSelected && styles.subjectOptionSelected,
+                        ]}
+                        onPress={() => {
+                          setSelectedSubject(subject.value);
+                          setIsSubjectMenuOpen(false);
+                        }}
+                      >
+                        <Text
+                          style={[
+                            styles.subjectOptionText,
+                            {
+                              color: isSelected
+                                ? "#0B5FFF"
+                                : isDark
+                                  ? "#DDE7F9"
+                                  : "#24406A",
+                            },
+                          ]}
+                        >
+                          {subject.label}
+                        </Text>
+                        {isSelected ? (
+                          <Ionicons name="checkmark" size={15} color="#0B5FFF" />
+                        ) : null}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              ) : null}
+            </View>
             <TouchableOpacity
               style={[
                 styles.sendBtn,
@@ -511,6 +640,38 @@ const styles = StyleSheet.create({
   subjectBtnText: {
     color: "white",
     fontSize: 12,
+    fontWeight: "700",
+  },
+  subjectWrap: {
+    position: "relative",
+  },
+  subjectDropdown: {
+    position: "absolute",
+    right: 0,
+    bottom: 52,
+    minWidth: 150,
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingVertical: 6,
+    shadowColor: "#0A1A35",
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 8,
+    zIndex: 20,
+  },
+  subjectOption: {
+    height: 38,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  subjectOptionSelected: {
+    backgroundColor: "rgba(11,95,255,0.09)",
+  },
+  subjectOptionText: {
+    fontSize: 13,
     fontWeight: "700",
   },
   sendBtn: {

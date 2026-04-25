@@ -19,4 +19,8 @@ export interface StudentProfile {
   lastActive?: string | null;
   studentPhotoUri?: string;
   twinPhotoUri?: string;
+  isSubscribed?: boolean;
+  labBonusUnlock?: boolean;
+  subscriptionStatus?: string | null;
+  subscriptionPeriodEnd?: string | null;
 }

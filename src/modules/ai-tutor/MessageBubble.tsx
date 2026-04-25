@@ -7,6 +7,7 @@ interface MessageProps {
   isUser: boolean; // true = Student, false = AI
   timestamp?: string;
   isTyping?: boolean;
+  isDark?: boolean;
 }
 
 export default function MessageBubble({
@@ -14,6 +15,7 @@ export default function MessageBubble({
   isUser,
   timestamp,
   isTyping,
+  isDark = false,
 }: MessageProps) {
   const [dots, setDots] = useState(".");
 
@@ -41,15 +43,53 @@ export default function MessageBubble({
 
       {/* The Bubble */}
       <View
-        style={[styles.bubble, isUser ? styles.userBubble : styles.aiBubble]}
+        style={[
+          styles.bubble,
+          isUser
+            ? styles.userBubble
+            : [
+                styles.aiBubble,
+                {
+                  backgroundColor: isDark
+                    ? "rgba(14,26,44,0.95)"
+                    : "rgba(255,255,255,0.9)",
+                  borderColor: isDark
+                    ? "rgba(123,167,255,0.26)"
+                    : "rgba(11,95,255,0.14)",
+                },
+              ],
+        ]}
       >
-        {!isUser && <Text style={styles.aiLabel}>EduTwin</Text>}
-        <Text style={[styles.text, isUser ? styles.userText : styles.aiText]}>
+        {!isUser && (
+          <Text
+            selectable
+            style={[styles.aiLabel, { color: isDark ? "#AAB7CF" : "#5A6C87" }]}
+          >
+            EduTwin
+          </Text>
+        )}
+        <Text
+          selectable
+          style={[
+            styles.text,
+            isUser
+              ? styles.userText
+              : [styles.aiText, { color: isDark ? "#F4F7FB" : "#1A202C" }],
+          ]}
+        >
           {isTyping ? `Thinking${dots}` : text}
         </Text>
 
         {/* Timestamp */}
-        <Text style={[styles.time, isUser ? styles.userTime : styles.aiTime]}>
+        <Text
+          selectable
+          style={[
+            styles.time,
+            isUser
+              ? styles.userTime
+              : [styles.aiTime, { color: isDark ? "#8FA1BF" : "#718096" }],
+          ]}
+        >
           {timestamp || "Just now"}
         </Text>
       </View>

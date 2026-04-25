@@ -8,18 +8,23 @@ import {
   type PracticeResponse,
 } from "@/shared/services/ai-service";
 import { recordPracticeCompletion } from "@/shared/services/gamification";
-import type { PracticeQuestionType, PracticeSet } from "@/shared/store/practice-store";
+import { useTranslation } from "@/shared/i18n";
+import type {
+  PracticeQuestionType,
+  PracticeSet,
+} from "@/shared/store/practice-store";
 import { useStudentProfile } from "@/shared/store/user-store";
 import type { SubjectName } from "@/shared/types/domain.types";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
+  useColorScheme,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -44,11 +49,7 @@ type PracticeSession = {
 };
 
 const SUBJECTS: SubjectName[] = ["biology", "chemistry", "physics", "math"];
-const QUESTION_TYPES: Array<[PracticeQuestionType, string]> = [
-  ["mcq", "MCQ"],
-  ["true_false", "True/False"],
-  ["short", "Short answer"],
-];
+const QUESTION_TYPES: PracticeQuestionType[] = ["mcq", "true_false", "short"];
 
 const formatDisplayDate = (value: string) => {
   const date = new Date(value);
@@ -64,6 +65,95 @@ const formatDisplayDate = (value: string) => {
 };
 
 export default function PracticeHub() {
+  const isDark = useColorScheme() === "dark";
+  const { language } = useTranslation();
+  const isOm = language === "om";
+  const copy = {
+    practiceHub: isOm ? "Wiirtuu Shaakala" : "Practice Hub",
+    personalizedGeneration: isOm
+      ? "Gaaffilee dhuunfaa siif mijatan uumuu"
+      : "Personalized Question Generation",
+    generateNewSet: isOm ? "Setii haaraa uumuu" : "Generate new set",
+    subject: isOm ? "Mataduree" : "Subject",
+    questionType: isOm ? "Gosa gaaffii" : "Question type",
+    selectQuestionType: isOm ? "Gosa gaaffii filadhu" : "Select question type",
+    topicArea: isOm ? "Mata-duree yookaan naannoo" : "Topic or area",
+    topicPlaceholder: isOm
+      ? "Mata-duree filannoo, fakkeenyaaf Mitoosis"
+      : "Optional topic, for example Mitosis",
+    numberOfQuestions: isOm ? "Lakkoofsa gaaffilee" : "Number of questions",
+    startPractice: isOm ? "Shaakala jalqabi" : "Start Practice",
+    noPracticeGeneratedPrefix: isOm
+      ? "Shaakalni"
+      : "No practice was generated for",
+    noPracticeGeneratedSuffix: isOm
+      ? "hin uumamne. Mata-duree kitaaba Kutaa"
+      : ". Try a more specific Grade",
+    noPracticeGeneratedTail: isOm
+      ? "caalaa ifaa ta'e yaali."
+      : "textbook topic.",
+    quizNotSaved: isOm
+      ? "Qorannoon backend keessatti hin kuufamne. Irra deebi'ii yaali."
+      : "Quiz was not saved in backend. Please retry.",
+    noQuestionsYet: isOm
+      ? "Qorannoon kun gaaffii hin qabu."
+      : "This quiz has no questions yet.",
+    failedOpenSaved: isOm
+      ? "Qorannoo kuufame banuun hin milkoofne."
+      : "Failed to open saved practice quiz.",
+    recently: isOm ? "Dhiheenya" : "Recently",
+    complete: isOm ? "xumurame" : "complete",
+    score: isOm ? "Bu'aa" : "Score",
+    question: isOm ? "Gaaffii" : "Question",
+    of: isOm ? "kan keessaa" : "of",
+    typeYourAnswer: isOm ? "Deebii kee barreessi" : "Type your answer",
+    check: isOm ? "Sakatta'i" : "Check",
+    answerRevealed: isOm ? "Deebiin mul'ate" : "Answer revealed",
+    tapToFlip: isOm ? "Kaardii deebii garagalchi" : "Tap to flip answer card",
+    expectedAnswer: isOm ? "Deebii sirrii" : "Expected answer",
+    yourAnswer: isOm ? "Deebii kee" : "Your answer",
+    flipHint: isOm
+      ? "Deebii kee deebii kitaabaa wajjin madaaluuf garagalchi."
+      : "Flip to compare your answer with the textbook answer.",
+    correct: isOm ? "Sirrii" : "Correct",
+    correctAnswer: isOm ? "Deebii sirrii" : "Correct answer",
+    hint: isOm ? "Gorsa" : "Hint",
+    explain: isOm ? "Ibsi" : "Explain",
+    nextQuestion: isOm ? "Gaaffii itti aanu" : "Next question",
+    sessionComplete: isOm ? "Kutaan xumurame" : "Session complete",
+    retryIncorrect: isOm
+      ? "Kan dogoggoran qofa irra deebi'i"
+      : "Retry incorrect only",
+    teacherBank: isOm ? "Baankii gaaffii barsiisaa" : "Teacher question bank",
+    loadingTeacher: isOm
+      ? "Qorannoowwan barsiisaa fe'aa jira..."
+      : "Loading teacher quizzes...",
+    noTeacher: isOm
+      ? "Qorannoo barsiisaa ammaaf hin jiru."
+      : "No teacher quizzes are available yet.",
+    savedSets: isOm ? "Setoota dhuunfaa kuufaman" : "Saved personalized sets",
+    loadingSaved: isOm
+      ? "Qorannoowwan kuufaman fe'aa jira..."
+      : "Loading saved quizzes...",
+    noBackendQuiz: isOm
+      ? "Backend keessatti qorannoon hin jiru. Oliitti setii jalqabaa kee uumi."
+      : "No backend quizzes yet. Generate your first set above.",
+    filterQuizzes: isOm ? "Qorannoo matadureen calaluu" : "Filter quizzes by subject",
+    allSubjects: isOm ? "Hunda" : "All",
+  };
+  const formatSubject = (value: SubjectName | string) => {
+    const subjectKey = String(value || "").toLowerCase();
+    if (subjectKey === "biology") return isOm ? "Baayoloojii" : "Biology";
+    if (subjectKey === "chemistry") return isOm ? "Keemistirii" : "Chemistry";
+    if (subjectKey === "physics") return isOm ? "Fiiziksii" : "Physics";
+    if (subjectKey === "math") return isOm ? "Herrega" : "Math";
+    return String(value || "");
+  };
+  const questionTypeLabel = (type: PracticeQuestionType) => {
+    if (type === "mcq") return "MCQ";
+    if (type === "true_false") return isOm ? "Dhugaa/Sobaa" : "True/False";
+    return isOm ? "Deebii gabaabaa" : "Short answer";
+  };
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const studentProfile = useStudentProfile();
@@ -89,6 +179,10 @@ export default function PracticeHub() {
   const [teacherPracticeSets, setTeacherPracticeSets] = useState<
     BackendPracticeQuizSummary[]
   >([]);
+  const [quizSubjectFilter, setQuizSubjectFilter] = useState<
+    SubjectName | "all"
+  >("all");
+  const [quizFilterDropdownOpen, setQuizFilterDropdownOpen] = useState(false);
 
   const computeTiming = (count: number) => {
     const perQuestion = Math.max(30, Math.ceil((count * 45) / count));
@@ -119,10 +213,10 @@ export default function PracticeHub() {
     });
   };
 
-  const selectedTypeLabel = QUESTION_TYPES.filter(([type]) =>
+  const selectedTypeLabel = QUESTION_TYPES.filter((type) =>
     questionTypes.includes(type),
   )
-    .map(([, label]) => label)
+    .map((type) => questionTypeLabel(type))
     .join(", ");
 
   const loadSavedPracticeSets = useCallback(async () => {
@@ -161,13 +255,13 @@ export default function PracticeHub() {
     if (!response.questions.length) {
       setErrorText(
         response.error ||
-          `No practice was generated for ${subject}. Try a more specific Grade ${studentProfile.grade} textbook topic.`,
+          `${copy.noPracticeGeneratedPrefix} ${formatSubject(subject)}${copy.noPracticeGeneratedSuffix} ${studentProfile.grade} ${copy.noPracticeGeneratedTail}`,
       );
       return;
     }
 
     if (!response.quizId) {
-      setErrorText("Quiz was not saved in backend. Please retry.");
+      setErrorText(copy.quizNotSaved);
       return;
     }
 
@@ -189,7 +283,7 @@ export default function PracticeHub() {
       setErrorText("");
       const detail = await fetchPracticeQuizDetail(item.id);
       if (!detail.questions.length) {
-        setErrorText("This quiz has no questions yet.");
+        setErrorText(copy.noQuestionsYet);
         return;
       }
 
@@ -203,12 +297,34 @@ export default function PracticeHub() {
       });
     } catch (error) {
       setErrorText(
-        error instanceof Error
-          ? error.message
-          : "Failed to open saved practice quiz.",
+        error instanceof Error ? error.message : copy.failedOpenSaved,
       );
     }
   };
+
+  const groupedTeacherSets = useMemo(() => {
+    const filtered =
+      quizSubjectFilter === "all"
+        ? teacherPracticeSets
+        : teacherPracticeSets.filter((set) => set.subject === quizSubjectFilter);
+
+    return SUBJECTS.map((subjectKey) => ({
+      subject: subjectKey,
+      items: filtered.filter((set) => set.subject === subjectKey),
+    })).filter((group) => group.items.length > 0);
+  }, [quizSubjectFilter, teacherPracticeSets]);
+
+  const groupedSavedSets = useMemo(() => {
+    const filtered =
+      quizSubjectFilter === "all"
+        ? savedPracticeSets
+        : savedPracticeSets.filter((set) => set.subject === quizSubjectFilter);
+
+    return SUBJECTS.map((subjectKey) => ({
+      subject: subjectKey,
+      items: filtered.filter((set) => set.subject === subjectKey),
+    })).filter((group) => group.items.length > 0);
+  }, [quizSubjectFilter, savedPracticeSets]);
 
   const advanceQuestion = () => {
     setShortAnswerInput("");
@@ -316,11 +432,24 @@ export default function PracticeHub() {
   const renderLibraryCard = (set: BackendPracticeQuizSummary) => (
     <TouchableOpacity
       key={set.id}
-      style={styles.libraryCard}
+      style={[
+        styles.libraryCardCompact,
+        {
+          backgroundColor: isDark ? "#0E1A2C" : "rgba(255,255,255,0.84)",
+          borderColor: isDark ? "#22324E" : "rgba(11, 95, 255, 0.12)",
+        },
+      ]}
       onPress={() => openSavedPracticeSet(set)}
     >
       <View style={styles.libraryHeader}>
-        <Text style={styles.libraryTitle}>{set.title}</Text>
+        <Text
+          style={[
+            styles.libraryTitle,
+            { color: isDark ? "#F4F7FB" : "#1A202C" },
+          ]}
+        >
+          {set.title}
+        </Text>
         <View
           style={[
             styles.libraryBadge,
@@ -339,9 +468,10 @@ export default function PracticeHub() {
           </Text>
         </View>
       </View>
-      <Text style={styles.libraryMeta}>
-        {set.subject.toUpperCase()} • {set.questionCount} questions •{" "}
-        {formatDisplayDate(set.createdAt)}
+      <Text
+        style={[styles.libraryMeta, { color: isDark ? "#AAB7CF" : "#5A6C87" }]}
+      >
+        {set.questionCount} • {formatDisplayDate(set.createdAt) || copy.recently}
       </Text>
     </TouchableOpacity>
   );
@@ -359,9 +489,24 @@ export default function PracticeHub() {
     );
 
     return (
-      <View style={styles.sessionCard}>
+      <View
+        style={[
+          styles.sessionCard,
+          {
+            backgroundColor: isDark ? "#0E1A2C" : "rgba(255,255,255,0.84)",
+            borderColor: isDark ? "#22324E" : "rgba(11, 95, 255, 0.12)",
+          },
+        ]}
+      >
         <View style={styles.sessionHeader}>
-          <Text style={styles.sessionTitle}>{session.set.title}</Text>
+          <Text
+            style={[
+              styles.sessionTitle,
+              { color: isDark ? "#F4F7FB" : "#1A202C" },
+            ]}
+          >
+            {session.set.title}
+          </Text>
           <View style={styles.timerPill}>
             <Ionicons name="timer" size={14} color="white" />
             <Text style={styles.timerText}>{session.timeLeft}s</Text>
@@ -369,19 +514,36 @@ export default function PracticeHub() {
         </View>
 
         <View style={styles.progressRow}>
-          <Text style={styles.progressText}>{progress}% complete</Text>
-          <Text style={styles.scoreText}>
-            Score: {correctCount}/{session.set.questions.length}
+          <Text
+            style={[
+              styles.progressText,
+              { color: isDark ? "#AAB7CF" : "#5A6C87" },
+            ]}
+          >
+            {progress}% {copy.complete}
+          </Text>
+          <Text
+            style={[
+              styles.scoreText,
+              { color: isDark ? "#F4F7FB" : "#1A202C" },
+            ]}
+          >
+            {copy.score}: {correctCount}/{session.set.questions.length}
           </Text>
         </View>
-        <View style={styles.progressTrack}>
+        <View
+          style={[
+            styles.progressTrack,
+            { backgroundColor: isDark ? "#17253A" : "#EAF0FA" },
+          ]}
+        >
           <View style={[styles.progressFill, { width: `${progress}%` }]} />
         </View>
 
         {!session.isComplete ? (
           <>
             <Text style={styles.questionMeta}>
-              Question {session.currentIndex + 1} of{" "}
+              {copy.question} {session.currentIndex + 1} {copy.of}{" "}
               {session.set.questions.length}
             </Text>
             <Text style={styles.questionText}>{question.question}</Text>
@@ -395,9 +557,16 @@ export default function PracticeHub() {
                   <TextInput
                     value={shortAnswerInput}
                     onChangeText={setShortAnswerInput}
-                    placeholder="Type your answer"
-                    placeholderTextColor={COLORS.textLight}
-                    style={styles.practiceInput}
+                    placeholder={copy.typeYourAnswer}
+                    placeholderTextColor={isDark ? "#7D8CA8" : COLORS.textLight}
+                    style={[
+                      styles.practiceInput,
+                      {
+                        backgroundColor: isDark ? "#121C2E" : "#FFFFFF",
+                        borderColor: isDark ? "#2E4368" : "#D6E4FF",
+                        color: isDark ? "#F4F7FB" : "#1A202C",
+                      },
+                    ]}
                     editable={!answer}
                   />
                   <TouchableOpacity
@@ -405,30 +574,51 @@ export default function PracticeHub() {
                     onPress={submitShortAnswer}
                     disabled={!!answer}
                   >
-                    <Text style={styles.primaryActionText}>Check</Text>
+                    <Text style={styles.primaryActionText}>{copy.check}</Text>
                   </TouchableOpacity>
                 </View>
                 {!!answer && (
                   <TouchableOpacity
-                    style={styles.flipCard}
+                    style={[
+                      styles.flipCard,
+                      {
+                        backgroundColor: isDark ? "#121C2E" : "#F7FAFF",
+                        borderColor: isDark ? "#2E4368" : "#D6E4FF",
+                      },
+                    ]}
                     onPress={() =>
                       updateAnswerState({ cardFlipped: !answer.cardFlipped })
                     }
                   >
-                    <Text style={styles.flipCardLabel}>
+                    <Text
+                      style={[
+                        styles.flipCardLabel,
+                        { color: isDark ? "#BFD6FF" : "#35507E" },
+                      ]}
+                    >
                       {answer.cardFlipped
-                        ? "Answer revealed"
-                        : "Tap to flip answer card"}
+                        ? copy.answerRevealed
+                        : copy.tapToFlip}
                     </Text>
-                    <Text style={styles.flipCardText}>
+                    <Text
+                      style={[
+                        styles.flipCardText,
+                        { color: isDark ? "#F4F7FB" : "#1A202C" },
+                      ]}
+                    >
                       {answer.cardFlipped
-                        ? `Expected answer: ${question.answer}`
-                        : `Your answer: ${answer.selected}`}
+                        ? `${copy.expectedAnswer}: ${question.answer}`
+                        : `${copy.yourAnswer}: ${answer.selected}`}
                     </Text>
-                    <Text style={styles.flipCardHint}>
+                    <Text
+                      style={[
+                        styles.flipCardHint,
+                        { color: isDark ? "#AAB7CF" : "#5A6C87" },
+                      ]}
+                    >
                       {answer.cardFlipped
                         ? question.explanation
-                        : "Flip to compare your answer with the textbook answer."}
+                        : copy.flipHint}
                     </Text>
                   </TouchableOpacity>
                 )}
@@ -442,6 +632,10 @@ export default function PracticeHub() {
                       key={option}
                       style={[
                         styles.optionButton,
+                        {
+                          backgroundColor: isDark ? "#121C2E" : "#FFFFFF",
+                          borderColor: isDark ? "#2E4368" : "#D6E4FF",
+                        },
                         isSelected && styles.optionSelected,
                         isSelected && answer?.isCorrect && styles.optionCorrect,
                         isSelected && !answer?.isCorrect && styles.optionWrong,
@@ -449,7 +643,14 @@ export default function PracticeHub() {
                       onPress={() => submitChoice(option)}
                       disabled={!!answer}
                     >
-                      <Text style={styles.optionText}>{option}</Text>
+                      <Text
+                        style={[
+                          styles.optionText,
+                          { color: isDark ? "#F4F7FB" : "#1A202C" },
+                        ]}
+                      >
+                        {option}
+                      </Text>
                     </TouchableOpacity>
                   );
                 })}
@@ -458,47 +659,95 @@ export default function PracticeHub() {
 
             {!!answer && (
               <>
-                <View style={styles.answerBar}>
+                <View
+                  style={[
+                    styles.answerBar,
+                    {
+                      backgroundColor: isDark ? "#121C2E" : "#F7FAFF",
+                      borderColor: isDark ? "#2E4368" : "#D6E4FF",
+                    },
+                  ]}
+                >
                   <Text
                     style={
                       answer.isCorrect ? styles.correctText : styles.wrongText
                     }
                   >
                     {answer.isCorrect
-                      ? "Correct"
-                      : `Correct answer: ${question.answer}`}
+                      ? copy.correct
+                      : `${copy.correctAnswer}: ${question.answer}`}
                   </Text>
                   <View style={styles.answerActions}>
                     <TouchableOpacity
-                      style={styles.secondaryAction}
+                      style={[
+                        styles.secondaryAction,
+                        {
+                          backgroundColor: isDark ? "#17253A" : "#EEF5FF",
+                          borderColor: isDark ? "#2E4368" : "#D6E4FF",
+                        },
+                      ]}
                       onPress={() =>
                         updateAnswerState({ revealHint: !answer.revealHint })
                       }
                     >
-                      <Text style={styles.secondaryActionText}>Hint</Text>
+                      <Text style={styles.secondaryActionText}>
+                        {copy.hint}
+                      </Text>
                     </TouchableOpacity>
                     <TouchableOpacity
-                      style={styles.darkAction}
+                      style={[
+                        styles.darkAction,
+                        {
+                          backgroundColor: isDark ? "#2A2217" : "#FFF4E5",
+                          borderColor: isDark ? "#5B4520" : "#FFD5A1",
+                        },
+                      ]}
                       onPress={() =>
                         updateAnswerState({
                           revealExplanation: !answer.revealExplanation,
                         })
                       }
                     >
-                      <Text style={styles.darkActionText}>Explain</Text>
+                      <Text style={styles.darkActionText}>{copy.explain}</Text>
                     </TouchableOpacity>
                   </View>
                 </View>
                 {answer.revealHint && (
-                  <View style={styles.hintBox}>
-                    <Text style={styles.hintText}>
+                  <View
+                    style={[
+                      styles.hintBox,
+                      {
+                        backgroundColor: isDark ? "#121C2E" : "#F7FAFF",
+                        borderColor: isDark ? "#2E4368" : "#D6E4FF",
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.hintText,
+                        { color: isDark ? "#AAB7CF" : "#5A6C87" },
+                      ]}
+                    >
                       {question.explanation.split(".")[0].trim()}.
                     </Text>
                   </View>
                 )}
                 {answer.revealExplanation && (
-                  <View style={styles.explainBox}>
-                    <Text style={styles.explainText}>
+                  <View
+                    style={[
+                      styles.explainBox,
+                      {
+                        backgroundColor: isDark ? "#121C2E" : "#F7FAFF",
+                        borderColor: isDark ? "#2E4368" : "#D6E4FF",
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.explainText,
+                        { color: isDark ? "#F4F7FB" : "#1A202C" },
+                      ]}
+                    >
                       {question.explanation}
                     </Text>
                   </View>
@@ -511,21 +760,29 @@ export default function PracticeHub() {
               onPress={advanceQuestion}
               disabled={!answer}
             >
-              <Text style={styles.primaryActionText}>Next question</Text>
+              <Text style={styles.primaryActionText}>{copy.nextQuestion}</Text>
             </TouchableOpacity>
           </>
         ) : (
           <View style={styles.completeWrap}>
             <Ionicons name="trophy" size={34} color={COLORS.primary} />
-            <Text style={styles.completeTitle}>Session complete</Text>
-            <Text style={styles.completeText}>
-              Score: {correctCount}/{session.set.questions.length}
+            <Text
+              style={[styles.completeTitle, { color: isDark ? "#F4F7FB" : "#1A202C" }]}
+            >
+              {copy.sessionComplete}
+            </Text>
+            <Text
+              style={[styles.completeText, { color: isDark ? "#AAB7CF" : "#5A6C87" }]}
+            >
+              {copy.score}: {correctCount}/{session.set.questions.length}
             </Text>
             <TouchableOpacity
               style={styles.primaryAction}
               onPress={retryIncorrect}
             >
-              <Text style={styles.primaryActionText}>Retry incorrect only</Text>
+              <Text style={styles.primaryActionText}>
+                {copy.retryIncorrect}
+              </Text>
             </TouchableOpacity>
           </View>
         )}
@@ -534,7 +791,12 @@ export default function PracticeHub() {
   };
 
   return (
-    <View style={styles.screen}>
+    <View
+      style={[
+        styles.screen,
+        { backgroundColor: isDark ? "#08111F" : "#FFFFFF" },
+      ]}
+    >
       <View pointerEvents="none" style={styles.bgGlowBlue} />
       <View pointerEvents="none" style={styles.bgGlowGold} />
       <View pointerEvents="none" style={styles.bgGlowSky} />
@@ -552,35 +814,70 @@ export default function PracticeHub() {
         overScrollMode="never"
         scrollEventThrottle={16}
       >
-        <View style={styles.heroCard}>
-          <View style={styles.heroBadgeRow}>
-            <Ionicons name="sparkles-outline" size={14} color="#0B5FFF" />
-            <Text style={styles.heroBadge}>Practice Hub</Text>
+        <View
+          style={[
+            styles.homeBadgeCard,
+            {
+              backgroundColor: isDark ? "#0E1A2C" : "rgba(255, 255, 255, 0.94)",
+              borderColor: isDark ? "#22324E" : "rgba(11, 95, 255, 0.16)",
+            },
+          ]}
+        >
+          <View style={styles.homeBadgeRow}>
+            <Ionicons name="sparkles-outline" size={15} color="#0B5FFF" />
+            <Text style={[styles.homeBadgeText, { color: isDark ? "#F4F7FB" : "#1A202C" }]}> 
+              {copy.practiceHub}
+            </Text>
           </View>
-          <Text style={styles.heroTitle}>Personalized Question Generation</Text>
         </View>
 
-        <View style={styles.generatorCard}>
-          <Text style={styles.sectionTitle}>Generate new set</Text>
+        <View
+          style={[
+            styles.generatorCard,
+            {
+              backgroundColor: isDark ? "#0E1A2C" : "rgba(255,255,255,0.84)",
+              borderColor: isDark ? "#22324E" : "rgba(11, 95, 255, 0.12)",
+            },
+          ]}
+        >
+          <Text style={[styles.sectionTitle, { color: isDark ? "#F4F7FB" : "#1A202C" }]}>
+            {copy.generateNewSet}
+          </Text>
 
-          <Text style={styles.label}>Subject</Text>
+          <Text style={[styles.label, { color: isDark ? "#AAB7CF" : "#5B6B86" }]}>{copy.subject}</Text>
           <TouchableOpacity
-            style={styles.dropdownTrigger}
+            style={[
+              styles.dropdownTrigger,
+              {
+                borderColor: isDark ? "#2E4368" : "#D6E4FF",
+                backgroundColor: isDark ? "#121C2E" : "#F5F8FF",
+              },
+            ]}
             onPress={() => {
               setSubjectDropdownOpen((prev) => !prev);
               setTypeDropdownOpen(false);
             }}
             activeOpacity={0.9}
           >
-            <Text style={styles.dropdownTriggerText}>{subject}</Text>
+            <Text style={[styles.dropdownTriggerText, { color: isDark ? "#F4F7FB" : "#2E4A86" }]}>
+              {formatSubject(subject)}
+            </Text>
             <Ionicons
               name={subjectDropdownOpen ? "chevron-up" : "chevron-down"}
               size={18}
-              color="#35507E"
+              color={isDark ? "#BFD6FF" : "#35507E"}
             />
           </TouchableOpacity>
           {subjectDropdownOpen && (
-            <View style={styles.dropdownMenu}>
+            <View
+              style={[
+                styles.dropdownMenu,
+                {
+                  borderColor: isDark ? "#2E4368" : "#D6E4FF",
+                  backgroundColor: isDark ? "#0F1D33" : "rgba(255,255,255,0.96)",
+                },
+              ]}
+            >
               {SUBJECTS.map((item) => {
                 const active = subject === item;
                 return (
@@ -588,7 +885,13 @@ export default function PracticeHub() {
                     key={item}
                     style={[
                       styles.dropdownItem,
+                      {
+                        borderBottomColor: isDark ? "#22324E" : "#ECF2FF",
+                      },
                       active && styles.dropdownItemActive,
+                      active && {
+                        backgroundColor: isDark ? "#17253A" : "#EEF4FF",
+                      },
                     ]}
                     onPress={() => {
                       setSubject(item);
@@ -599,10 +902,11 @@ export default function PracticeHub() {
                     <Text
                       style={[
                         styles.dropdownItemText,
+                        { color: isDark ? "#BFD6FF" : "#35507E" },
                         active && styles.dropdownItemTextActive,
                       ]}
                     >
-                      {item}
+                      {formatSubject(item)}
                     </Text>
                     {active ? (
                       <Ionicons
@@ -617,34 +921,57 @@ export default function PracticeHub() {
             </View>
           )}
 
-          <Text style={styles.label}>Question type</Text>
+          <Text style={styles.label}>{copy.questionType}</Text>
           <TouchableOpacity
-            style={styles.dropdownTrigger}
+            style={[
+              styles.dropdownTrigger,
+              {
+                borderColor: isDark ? "#2E4368" : "#D6E4FF",
+                backgroundColor: isDark ? "#121C2E" : "#F5F8FF",
+              },
+            ]}
             onPress={() => {
               setTypeDropdownOpen((prev) => !prev);
               setSubjectDropdownOpen(false);
             }}
             activeOpacity={0.9}
           >
-            <Text style={styles.dropdownTriggerText} numberOfLines={1}>
-              {selectedTypeLabel || "Select question type"}
+            <Text
+              style={[styles.dropdownTriggerText, { color: isDark ? "#F4F7FB" : "#2E4A86" }]}
+              numberOfLines={1}
+            >
+              {selectedTypeLabel || copy.selectQuestionType}
             </Text>
             <Ionicons
               name={typeDropdownOpen ? "chevron-up" : "chevron-down"}
               size={18}
-              color="#35507E"
+              color={isDark ? "#BFD6FF" : "#35507E"}
             />
           </TouchableOpacity>
           {typeDropdownOpen && (
-            <View style={styles.dropdownMenu}>
-              {QUESTION_TYPES.map(([type, label]) => {
+            <View
+              style={[
+                styles.dropdownMenu,
+                {
+                  borderColor: isDark ? "#2E4368" : "#D6E4FF",
+                  backgroundColor: isDark ? "#0F1D33" : "rgba(255,255,255,0.96)",
+                },
+              ]}
+            >
+              {QUESTION_TYPES.map((type) => {
                 const active = questionTypes.includes(type);
                 return (
                   <TouchableOpacity
                     key={type}
                     style={[
                       styles.dropdownItem,
+                      {
+                        borderBottomColor: isDark ? "#22324E" : "#ECF2FF",
+                      },
                       active && styles.dropdownItemActive,
+                      active && {
+                        backgroundColor: isDark ? "#17253A" : "#EEF4FF",
+                      },
                     ]}
                     onPress={() => toggleQuestionType(type)}
                     activeOpacity={0.9}
@@ -652,10 +979,11 @@ export default function PracticeHub() {
                     <Text
                       style={[
                         styles.dropdownItemText,
+                        { color: isDark ? "#BFD6FF" : "#35507E" },
                         active && styles.dropdownItemTextActive,
                       ]}
                     >
-                      {label}
+                      {questionTypeLabel(type)}
                     </Text>
                     <Ionicons
                       name={active ? "checkmark-circle" : "ellipse-outline"}
@@ -668,23 +996,37 @@ export default function PracticeHub() {
             </View>
           )}
 
-          <Text style={styles.label}>Topic or area</Text>
+          <Text style={[styles.label, { color: isDark ? "#AAB7CF" : "#5B6B86" }]}>{copy.topicArea}</Text>
           <TextInput
             value={topic}
             onChangeText={setTopic}
-            placeholder="Optional topic, for example Mitosis"
-            placeholderTextColor={COLORS.textLight}
-            style={styles.practiceInput}
+            placeholder={copy.topicPlaceholder}
+            placeholderTextColor={isDark ? "#7D8CA8" : COLORS.textLight}
+            style={[
+              styles.practiceInput,
+              {
+                backgroundColor: isDark ? "#121C2E" : "#F5F8FF",
+                borderColor: isDark ? "#2E4368" : "#D6E4FF",
+                color: isDark ? "#F4F7FB" : COLORS.text,
+              },
+            ]}
           />
 
-          <Text style={styles.label}>Number of questions</Text>
+          <Text style={[styles.label, { color: isDark ? "#AAB7CF" : "#5B6B86" }]}>{copy.numberOfQuestions}</Text>
           <TextInput
             value={questionCount}
             onChangeText={setQuestionCount}
             placeholder="5"
-            placeholderTextColor={COLORS.textLight}
+            placeholderTextColor={isDark ? "#7D8CA8" : COLORS.textLight}
             keyboardType="numeric"
-            style={styles.practiceInput}
+            style={[
+              styles.practiceInput,
+              {
+                backgroundColor: isDark ? "#121C2E" : "#F5F8FF",
+                borderColor: isDark ? "#2E4368" : "#D6E4FF",
+                color: isDark ? "#F4F7FB" : COLORS.text,
+              },
+            ]}
           />
 
           {!!errorText && <Text style={styles.errorText}>{errorText}</Text>}
@@ -699,7 +1041,9 @@ export default function PracticeHub() {
             ) : (
               <>
                 <Ionicons name="sparkles" size={18} color="white" />
-                <Text style={styles.generateButtonText}>Start Practice</Text>
+                <Text style={styles.generateButtonText}>
+                  {copy.startPractice}
+                </Text>
               </>
             )}
           </TouchableOpacity>
@@ -708,34 +1052,198 @@ export default function PracticeHub() {
         {renderSession()}
 
         <View style={styles.librarySection}>
-          <Text style={styles.sectionTitle}>Teacher question bank</Text>
-          {isFetchingLibrary ? (
-            <View style={styles.emptyCard}>
-              <ActivityIndicator size="small" color={COLORS.primary} />
-              <Text style={styles.emptyText}>Loading teacher quizzes...</Text>
+          <Text style={[styles.sectionTitle, { color: isDark ? "#F4F7FB" : "#1A202C" }]}>
+            {copy.filterQuizzes}
+          </Text>
+          <TouchableOpacity
+            style={[
+              styles.quizFilterTrigger,
+              {
+                backgroundColor: isDark ? "#121C2E" : "#F5F8FF",
+                borderColor: isDark ? "#2E4368" : "#D6E4FF",
+              },
+            ]}
+            onPress={() => setQuizFilterDropdownOpen((prev) => !prev)}
+            activeOpacity={0.9}
+          >
+            <Text
+              style={[
+                styles.quizFilterTriggerText,
+                { color: isDark ? "#BFD6FF" : "#35507E" },
+              ]}
+            >
+              {quizSubjectFilter === "all"
+                ? copy.allSubjects
+                : formatSubject(quizSubjectFilter)}
+            </Text>
+            <Ionicons
+              name={quizFilterDropdownOpen ? "chevron-up" : "chevron-down"}
+              size={16}
+              color={isDark ? "#BFD6FF" : "#35507E"}
+            />
+          </TouchableOpacity>
+          {quizFilterDropdownOpen ? (
+            <View
+              style={[
+                styles.quizFilterMenu,
+                {
+                  backgroundColor: isDark ? "#121C2E" : "#FFFFFF",
+                  borderColor: isDark ? "#2E4368" : "#D6E4FF",
+                },
+              ]}
+            >
+              {(["all", ...SUBJECTS] as const).map((item) => {
+                const active = quizSubjectFilter === item;
+                return (
+                  <TouchableOpacity
+                    key={item}
+                    style={[
+                      styles.quizFilterItem,
+                      active && {
+                        backgroundColor: isDark
+                          ? "rgba(11,95,255,0.24)"
+                          : "#EAF2FF",
+                      },
+                    ]}
+                    onPress={() => {
+                      setQuizSubjectFilter(item);
+                      setQuizFilterDropdownOpen(false);
+                    }}
+                    activeOpacity={0.9}
+                  >
+                    <Text
+                      style={[
+                        styles.quizFilterItemText,
+                        { color: isDark ? "#D5E5FF" : "#1A202C" },
+                      ]}
+                    >
+                      {item === "all" ? copy.allSubjects : formatSubject(item)}
+                    </Text>
+                    {active ? (
+                      <Ionicons name="checkmark" size={16} color="#0B5FFF" />
+                    ) : null}
+                  </TouchableOpacity>
+                );
+              })}
             </View>
-          ) : teacherPracticeSets.length > 0 ? (
-            teacherPracticeSets.map(renderLibraryCard)
+          ) : null}
+        </View>
+
+        <View style={styles.librarySection}>
+          <Text style={[styles.sectionTitle, { color: isDark ? "#F4F7FB" : "#1A202C" }]}>
+            {copy.teacherBank}
+          </Text>
+          {isFetchingLibrary ? (
+            <View
+              style={[
+                styles.emptyCard,
+                {
+                  backgroundColor: isDark ? "#0E1A2C" : "#FFFFFF",
+                  borderColor: isDark ? "#22324E" : "#DCE9FC",
+                },
+              ]}
+            >
+              <ActivityIndicator size="small" color={COLORS.primary} />
+              <Text
+                style={[
+                  styles.emptyText,
+                  { color: isDark ? "#AAB7CF" : "#60779E" },
+                ]}
+              >
+                {copy.loadingTeacher}
+              </Text>
+            </View>
+          ) : groupedTeacherSets.length > 0 ? (
+            groupedTeacherSets.map((group) => (
+              <View key={group.subject} style={styles.subjectGroupWrap}>
+                <Text
+                  style={[
+                    styles.subjectGroupTitle,
+                    { color: isDark ? "#BFD6FF" : "#35507E" },
+                  ]}
+                >
+                  {formatSubject(group.subject)}
+                </Text>
+                {group.items.map(renderLibraryCard)}
+              </View>
+            ))
           ) : (
-            <View style={styles.emptyCard}>
-              <Text style={styles.emptyText}>No teacher quizzes are available yet.</Text>
+            <View
+              style={[
+                styles.emptyCard,
+                {
+                  backgroundColor: isDark ? "#0E1A2C" : "#FFFFFF",
+                  borderColor: isDark ? "#22324E" : "#DCE9FC",
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.emptyText,
+                  { color: isDark ? "#AAB7CF" : "#60779E" },
+                ]}
+              >
+                {copy.noTeacher}
+              </Text>
             </View>
           )}
         </View>
 
         <View style={styles.librarySection}>
-          <Text style={styles.sectionTitle}>Saved personalized sets</Text>
+          <Text style={[styles.sectionTitle, { color: isDark ? "#F4F7FB" : "#1A202C" }]}>
+            {copy.savedSets}
+          </Text>
           {isFetchingSaved ? (
-            <View style={styles.emptyCard}>
+            <View
+              style={[
+                styles.emptyCard,
+                {
+                  backgroundColor: isDark ? "#0E1A2C" : "#FFFFFF",
+                  borderColor: isDark ? "#22324E" : "#DCE9FC",
+                },
+              ]}
+            >
               <ActivityIndicator size="small" color={COLORS.primary} />
-              <Text style={styles.emptyText}>Loading saved quizzes...</Text>
+              <Text
+                style={[
+                  styles.emptyText,
+                  { color: isDark ? "#AAB7CF" : "#60779E" },
+                ]}
+              >
+                {copy.loadingSaved}
+              </Text>
             </View>
-          ) : savedPracticeSets.length > 0 ? (
-            savedPracticeSets.map(renderLibraryCard)
+          ) : groupedSavedSets.length > 0 ? (
+            groupedSavedSets.map((group) => (
+              <View key={group.subject} style={styles.subjectGroupWrap}>
+                <Text
+                  style={[
+                    styles.subjectGroupTitle,
+                    { color: isDark ? "#BFD6FF" : "#35507E" },
+                  ]}
+                >
+                  {formatSubject(group.subject)}
+                </Text>
+                {group.items.map(renderLibraryCard)}
+              </View>
+            ))
           ) : (
-            <View style={styles.emptyCard}>
-              <Text style={styles.emptyText}>
-                No backend quizzes yet. Generate your first set above.
+            <View
+              style={[
+                styles.emptyCard,
+                {
+                  backgroundColor: isDark ? "#0E1A2C" : "#FFFFFF",
+                  borderColor: isDark ? "#22324E" : "#DCE9FC",
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.emptyText,
+                  { color: isDark ? "#AAB7CF" : "#60779E" },
+                ]}
+              >
+                {copy.noBackendQuiz}
               </Text>
             </View>
           )}
@@ -748,7 +1256,7 @@ export default function PracticeHub() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "#F5F9FF",
     overflow: "hidden",
   },
   bgGlowBlue: {
@@ -785,38 +1293,26 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     gap: 16,
   },
-  heroCard: {
-    backgroundColor: "rgba(255, 255, 255, 0.84)",
-    borderRadius: 28,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: "rgba(11, 95, 255, 0.12)",
-    shadowColor: "#0E234E",
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 5 },
-    elevation: 2,
-  },
-  heroBadgeRow: {
+  homeBadgeCard: {
     alignSelf: "flex-start",
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderWidth: 1,
+    shadowColor: "#0E234E",
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 3,
+  },
+  homeBadgeRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    backgroundColor: "#E7F0FF",
+    gap: 8,
   },
-  heroBadge: {
-    color: "#0B5FFF",
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  heroTitle: {
-    color: "#1A202C",
-    fontSize: 24,
+  homeBadgeText: {
+    fontSize: 18,
     fontWeight: "800",
-    marginTop: 10,
   },
   generatorCard: {
     backgroundColor: "rgba(255,255,255,0.84)",
@@ -926,10 +1422,74 @@ const styles = StyleSheet.create({
   librarySection: {
     gap: 10,
   },
-  libraryCard: {
+  quizFilterTrigger: {
+    minHeight: 44,
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  quizFilterTriggerText: {
+    fontSize: 13,
+    fontWeight: "700",
+    textTransform: "capitalize",
+  },
+  quizFilterMenu: {
+    borderRadius: 14,
+    borderWidth: 1,
+    overflow: "hidden",
+    marginTop: -4,
+  },
+  quizFilterItem: {
+    minHeight: 42,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  quizFilterItemText: {
+    fontSize: 13,
+    fontWeight: "600",
+    textTransform: "capitalize",
+  },
+  filterChipRow: {
+    gap: 8,
+  },
+  filterChip: {
+    minHeight: 38,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  filterChipActive: {
+    backgroundColor: "#0B5FFF",
+    borderColor: "#0B5FFF",
+  },
+  filterChipText: {
+    fontSize: 12,
+    fontWeight: "700",
+    textTransform: "capitalize",
+  },
+  filterChipTextActive: {
+    color: "#FFFFFF",
+  },
+  subjectGroupWrap: {
+    gap: 8,
+  },
+  subjectGroupTitle: {
+    fontSize: 13,
+    fontWeight: "800",
+    textTransform: "capitalize",
+  },
+  libraryCardCompact: {
     backgroundColor: "rgba(255,255,255,0.84)",
-    borderRadius: 20,
-    padding: 16,
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
     borderWidth: 1,
     borderColor: "rgba(11, 95, 255, 0.12)",
     shadowColor: "#0E234E",

@@ -3,6 +3,7 @@ import { Platform } from "react-native";
 import { useSyncExternalStore } from "react";
 import type { StudentProfile, SubjectName } from "../types/domain.types";
 import { getAuthToken } from "./auth-service";
+import { getAppSettings } from "../store/settings-store";
 import { getStudentProfile, updateStudentProfile } from "../store/user-store";
 
 export type AchievementId =
@@ -268,6 +269,10 @@ const NODE_API_BASE_URL =
   process.env.EXPO_PUBLIC_NODE_API_BASE_URL || `http://${resolveApiHost()}:5000`;
 
 export const syncTwinProgress = async (payload: TwinProgressPayload) => {
+  if (!getAppSettings().autoSyncTwinProgress) {
+    return null;
+  }
+
   const token = getAuthToken();
   if (!token) return null;
 
@@ -341,6 +346,7 @@ export const recordPracticeCompletion = ({
 }: CompletionPayload) => {
   const todayKey = toDateKey(new Date());
   const completionPercent = normalizeScorePercent(score, totalQuestions);
+  const currentProfile = getStudentProfile();
 
   if (subject) {
   const previous = localSubjectPerformance[subject] || { attempts: 0, average: 0, lastScore: 0 };
@@ -352,17 +358,16 @@ export const recordPracticeCompletion = ({
   };
 
   const derived = deriveSubjectsFromLocalPerformance();
-  const currentProfile = getStudentProfile();
   updateStudentProfile({
-    supportSubjects: derived.support.length > 0 ? derived.support : currentProfile.supportSubjects,
-    strongSubjects: derived.strong.length > 0 ? derived.strong : currentProfile.strongSubjects,
+    supportSubjects: derived.support,
+    strongSubjects: derived.strong,
     masteryScore: Math.max(currentProfile.masteryScore, completionPercent),
     performanceBand:
       completionPercent >= 80
         ? "top"
         : completionPercent <= 55
           ? "support"
-          : currentProfile.performanceBand,
+          : "medium",
   });
   }
 
@@ -446,14 +451,10 @@ export const recordTutorInteraction = (
 
   const derived = deriveSubjectsFromLocalPerformance();
   const currentProfile = getStudentProfile();
-  if (derived.support.length > 0 || derived.strong.length > 0) {
-    updateStudentProfile({
-      supportSubjects:
-        derived.support.length > 0 ? derived.support : currentProfile.supportSubjects,
-      strongSubjects:
-        derived.strong.length > 0 ? derived.strong : currentProfile.strongSubjects,
-    });
-  }
+  updateStudentProfile({
+    supportSubjects: derived.support,
+    strongSubjects: derived.strong,
+  });
 
   updateState((current) => {
     let currentStreak = current.currentStreak;
@@ -498,6 +499,8 @@ export const recordTutorInteraction = (
   void syncTwinProgress({
     xp_delta: 2,
     subject,
+    support_subjects: derived.support,
+    strong_subjects: derived.strong,
   });
 };
 

@@ -1,6 +1,6 @@
 import type { PerformanceBand } from "@/shared/types/domain.types";
 import { Ionicons } from "@expo/vector-icons";
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, useColorScheme, View } from "react-native";
 
 type Props = {
   twinName: string;
@@ -21,31 +21,33 @@ export default function DigitalTwinAvatar({
   performanceBand,
   readinessPercent,
 }: Props) {
+  const isDark = useColorScheme() === "dark";
+
   return (
-    <View style={styles.card}>
-      <View style={styles.orbitOuter}>
-        <View style={styles.orbitMid}>
-          <View style={styles.avatarWrap}>
-            <View style={styles.avatarCore}>
+    <View style={[styles.card, isDark && styles.cardDark]}>
+      <View style={[styles.orbitOuter, isDark && styles.orbitOuterDark]}>
+        <View style={[styles.orbitMid, isDark && styles.orbitMidDark]}>
+          <View style={[styles.avatarWrap, isDark && styles.avatarWrapDark]}>
+            <View style={[styles.avatarCore, isDark && styles.avatarCoreDark]}>
               <Ionicons name="sparkles" size={28} color="#0B5FFF" />
             </View>
           </View>
         </View>
       </View>
 
-      <Text style={styles.eyebrow}>Digital Twin</Text>
-      <Text style={styles.title}>{twinName}</Text>
-      <Text style={styles.subtitle}>
+      <Text style={[styles.eyebrow, isDark && styles.eyebrowDark]}>Digital Twin</Text>
+      <Text style={[styles.title, isDark && styles.titleDark]}>{twinName}</Text>
+      <Text style={[styles.subtitle, isDark && styles.subtitleDark]}>
         Built around {studentName}'s learning behavior, quiz results, and
         textbook progress.
       </Text>
 
       <View style={styles.metaRow}>
-        <View style={styles.metaPill}>
-          <Text style={styles.metaLabel}>{bandLabel[performanceBand]}</Text>
+        <View style={[styles.metaPill, isDark && styles.metaPillDark]}>
+          <Text style={[styles.metaLabel, isDark && styles.metaLabelDark]}>{bandLabel[performanceBand]}</Text>
         </View>
-        <View style={styles.metaPillDark}>
-          <Text style={styles.metaLabelDark}>{readinessPercent}% ready</Text>
+        <View style={[styles.metaPillAccent, isDark && styles.metaPillAccentDark]}>
+          <Text style={[styles.metaLabelAccent, isDark && styles.metaLabelAccentDark]}>{readinessPercent}% ready</Text>
         </View>
       </View>
     </View>
@@ -66,6 +68,10 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 2,
   },
+  cardDark: {
+    backgroundColor: "#0E1A2C",
+    borderColor: "#22324E",
+  },
   orbitOuter: {
     width: 112,
     height: 112,
@@ -76,6 +82,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: "#F7FAFF",
   },
+  orbitOuterDark: {
+    backgroundColor: "#121C2E",
+    borderColor: "#2E4368",
+  },
   orbitMid: {
     width: 88,
     height: 88,
@@ -84,6 +94,9 @@ const styles = StyleSheet.create({
     borderColor: "#BFD6FF",
     justifyContent: "center",
     alignItems: "center",
+  },
+  orbitMidDark: {
+    borderColor: "#3A4E70",
   },
   avatarWrap: {
     width: 70,
@@ -95,6 +108,10 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: "#D6E4FF",
   },
+  avatarWrapDark: {
+    backgroundColor: "#17253A",
+    borderColor: "#3A4E70",
+  },
   avatarCore: {
     width: 50,
     height: 50,
@@ -105,6 +122,10 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: "#D6E4FF",
   },
+  avatarCoreDark: {
+    backgroundColor: "#0E1A2C",
+    borderColor: "#3A4E70",
+  },
   eyebrow: {
     marginTop: 16,
     color: "#8A99B5",
@@ -113,6 +134,9 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     letterSpacing: 0.4,
   },
+  eyebrowDark: {
+    color: "#B9CAEE",
+  },
   title: {
     color: "#1A202C",
     fontSize: 24,
@@ -120,11 +144,17 @@ const styles = StyleSheet.create({
     marginTop: 6,
     textAlign: "center",
   },
+  titleDark: {
+    color: "#F4F7FB",
+  },
   subtitle: {
     marginTop: 6,
     color: "#718096",
     lineHeight: 20,
     textAlign: "center",
+  },
+  subtitleDark: {
+    color: "#AAB7CF",
   },
   metaRow: {
     marginTop: 14,
@@ -142,6 +172,10 @@ const styles = StyleSheet.create({
     borderColor: "#D6E4FF",
   },
   metaPillDark: {
+    backgroundColor: "#121C2E",
+    borderColor: "#2E4368",
+  },
+  metaPillAccent: {
     backgroundColor: "#FFF4E5",
     borderRadius: 999,
     paddingHorizontal: 10,
@@ -149,12 +183,24 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: "#FFD5A1",
   },
+  metaPillAccentDark: {
+    backgroundColor: "#2A2217",
+    borderColor: "#5B4520",
+  },
   metaLabel: {
     color: "#0B5FFF",
     fontWeight: "700",
     fontSize: 12,
   },
   metaLabelDark: {
+    color: "#BFD6FF",
+  },
+  metaLabelAccent: {
+    color: "#8C5C00",
+    fontWeight: "800",
+    fontSize: 12,
+  },
+  metaLabelAccentDark: {
     color: "#8C5C00",
     fontWeight: "800",
     fontSize: 12,

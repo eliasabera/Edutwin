@@ -1,10 +1,19 @@
 import { COLORS } from "@/shared/constants/colors";
+import {
+  hydrateAppSettings,
+  useAppSettings,
+} from "@/shared/store/settings-store";
 import { hydrateAuthToken } from "@/shared/services/auth-service";
+import {
+  configureNotificationHandler,
+  syncNotificationSettings,
+} from "@/shared/services/notification-service";
 import { Ionicons } from "@expo/vector-icons";
 import { useFonts } from "expo-font";
 import { Stack, usePathname, useRouter } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect, useRef, useState } from "react";
+import { Appearance, Text, useColorScheme } from "react-native";
 import {
   Animated,
   Dimensions,
@@ -21,6 +30,7 @@ import {
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
 import { useHideSidebar } from "@/shared/store/ui-store";
+import { useTranslation } from "@/shared/i18n";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -40,6 +50,13 @@ function RootLayoutContent() {
   const pathname = usePathname();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const appSettings = useAppSettings();
+  const deviceTheme = useColorScheme();
+  const isDark =
+    appSettings.themeMode === "system"
+      ? deviceTheme === "dark"
+      : appSettings.themeMode === "dark";
+  const { t } = useTranslation();
   const [appIsReady, setAppIsReady] = useState(false);
   const [radialOpen, setRadialOpen] = useState(false);
   const [radialVisible, setRadialVisible] = useState(false);
@@ -53,6 +70,14 @@ function RootLayoutContent() {
   const hideSidebar = useHideSidebar();
   const menuPositionInitializedRef = useRef(false);
   useFonts({}); // Add fonts here if needed
+
+  useEffect(() => {
+    configureNotificationHandler();
+  }, []);
+
+  useEffect(() => {
+    void syncNotificationSettings(appSettings);
+  }, [appSettings.dailyStreakReminders, appSettings.notificationsEnabled]);
 
   const getDockedMenuPosition = (value: { x: number; y: number }) => {
     const { width, height } = Dimensions.get("window");
@@ -93,12 +118,16 @@ function RootLayoutContent() {
   }, [initialMenuY, menuPosition]);
 
   const sidebarActions = [
-    ["Home", "/home", "grid-outline"],
-    ["AI Tutor", "/ai-tutor", "chatbubbles-outline"],
-    ["Practice", "/practice-hub", "library-outline"],
-    ["Lab", "/lab", "flask-outline"],
-    ["Textbook", "/textbook", "book-outline"],
-    ["Profile", "/profile", "person-outline"],
+    {
+      labelKey: "navigation.practice",
+      path: "/(tabs)/practice-hub",
+      icon: "library-outline",
+    },
+    {
+      labelKey: "navigation.settings",
+      path: "/(tabs)/settings",
+      icon: "settings-outline",
+    },
   ] as const;
 
   const toggleRadial = () => {
@@ -186,6 +215,7 @@ function RootLayoutContent() {
     "/textbook",
     "/profile",
     "/practice-hub",
+    "/settings",
   ];
   const showSidebar = shellRoutes.includes(pathname) && !hideSidebar;
   const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
@@ -220,11 +250,20 @@ function RootLayoutContent() {
   const directionalX = openRight ? freeRight : freeLeft;
   const directionalY = openDown ? freeBottom : freeTop;
   const availableRadius = Math.max(0, Math.min(directionalX, directionalY));
-  const radialRadius = Math.max(88, Math.min(140, availableRadius));
+  const actionCount = sidebarActions.length;
+  const arcMidDeg = (arcStartDeg + arcEndDeg) / 2;
+  const compactSpreadDeg = actionCount <= 1 ? 0 : actionCount === 2 ? 34 : 86;
+  const effectiveArcStartDeg = arcMidDeg - compactSpreadDeg / 2;
+  const effectiveArcEndDeg = arcMidDeg + compactSpreadDeg / 2;
+  const radialRadius =
+    actionCount <= 2
+      ? Math.max(74, Math.min(112, availableRadius))
+      : Math.max(88, Math.min(140, availableRadius));
 
   useEffect(() => {
     async function prepare() {
       try {
+        await hydrateAppSettings();
         await hydrateAuthToken();
         // Mock DB/Auth loading delay
         await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -244,13 +283,21 @@ function RootLayoutContent() {
   }, [appIsReady]);
 
   useEffect(() => {
+    Appearance.setColorScheme(
+      appSettings.themeMode === "system" ? null : appSettings.themeMode,
+    );
+  }, [appSettings.themeMode]);
+
+  useEffect(() => {
     closeRadial();
   }, [pathname]);
 
   if (!appIsReady) return null;
 
   return (
-    <View style={styles.root}>
+    <View
+      style={[styles.root, { backgroundColor: isDark ? "#08111F" : "#FFFFFF" }]}
+    >
       <Stack
         screenOptions={{
           headerShown: false,
@@ -268,64 +315,83 @@ function RootLayoutContent() {
           )}
 
           {radialVisible &&
-            sidebarActions.map(([_label, path, icon], index) => {
-            const count = sidebarActions.length;
-            const angleDeg =
-              arcStartDeg + (index * (arcEndDeg - arcStartDeg)) / (count - 1);
-            const angle = (angleDeg * Math.PI) / 180;
-            const offsetX = radialRadius * Math.cos(angle);
-            const offsetY = radialRadius * Math.sin(angle);
+            sidebarActions.map(({ labelKey, path, icon }, index) => {
+              const count = sidebarActions.length;
+              const angleDeg =
+                count <= 1
+                  ? arcMidDeg
+                  : effectiveArcStartDeg +
+                    (index * (effectiveArcEndDeg - effectiveArcStartDeg)) /
+                      (count - 1);
+              const angle = (angleDeg * Math.PI) / 180;
+              const offsetX = radialRadius * Math.cos(angle);
+              const offsetY = radialRadius * Math.sin(angle);
 
-            return (
-              <Animated.View
-                key={path}
-                pointerEvents={radialOpen ? "auto" : "none"}
-                style={[
-                  styles.radialAction,
-                  {
-                    opacity: radialProgress,
-                    transform: [
-                      { translateX: menuPosition.x },
-                      { translateY: menuPosition.y },
-                      {
-                        translateX: radialProgress.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: [0, offsetX],
-                        }),
-                      },
-                      {
-                        translateY: radialProgress.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: [0, offsetY],
-                        }),
-                      },
-                      {
-                        scale: radialProgress.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: [0.6, 1],
-                        }),
-                      },
-                    ],
-                  },
-                ]}
-              >
-                <TouchableOpacity
-                  style={styles.radialActionButton}
-                  activeOpacity={0.85}
-                  hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
-                  onPress={() => {
-                    closeRadial();
-                    router.push(path as never);
-                  }}
+              return (
+                <Animated.View
+                  key={path}
+                  pointerEvents={radialOpen ? "auto" : "none"}
+                  style={[
+                    styles.radialAction,
+                    {
+                      opacity: radialProgress,
+                      transform: [
+                        { translateX: menuPosition.x },
+                        { translateY: menuPosition.y },
+                        {
+                          translateX: radialProgress.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [0, offsetX],
+                          }),
+                        },
+                        {
+                          translateY: radialProgress.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [0, offsetY],
+                          }),
+                        },
+                        {
+                          scale: radialProgress.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [0.6, 1],
+                          }),
+                        },
+                      ],
+                    },
+                  ]}
                 >
-                  <Ionicons
-                    name={icon as "grid-outline"}
-                    size={18}
-                    color={COLORS.primary}
-                  />
-                </TouchableOpacity>
-              </Animated.View>
-            );
+                  <TouchableOpacity
+                    style={[
+                      styles.radialActionButton,
+                      {
+                        backgroundColor: isDark ? "#0E1A2C" : "#FFFFFF",
+                      },
+                    ]}
+                    activeOpacity={0.85}
+                    hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
+                    onPress={() => {
+                      closeRadial();
+                      router.push(path as never);
+                    }}
+                  >
+                    <View style={styles.radialActionLabelWrap}>
+                      <Ionicons
+                        name={icon as "grid-outline"}
+                        size={18}
+                        color={COLORS.primary}
+                      />
+                      <Text
+                        style={[
+                          styles.radialActionLabel,
+                          { color: isDark ? "#EAF1FF" : "#FFFFFF" },
+                        ]}
+                      >
+                        {t(labelKey)}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                </Animated.View>
+              );
             })}
 
           <Animated.View
@@ -418,5 +484,19 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.12,
     shadowRadius: 9,
     elevation: 6,
+  },
+  radialActionLabelWrap: {
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+  },
+  radialActionLabel: {
+    position: "absolute",
+    top: ACTION_SIZE + 8,
+    width: 84,
+    textAlign: "center",
+    color: COLORS.white,
+    fontSize: 11,
+    fontWeight: "700",
   },
 });

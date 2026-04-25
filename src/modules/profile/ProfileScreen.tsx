@@ -7,10 +7,18 @@ import {
   clearAuthToken,
   fetchStudentProfile,
   mapBackendProfileToStudentProfile,
+  redeemLabBonusUnlock,
   saveStudentProfile,
-  setCachedStudentProfile
+  setCachedStudentProfile,
+  uploadStudentPhotoFromProfile,
 } from "@/shared/services/auth-service";
 import { resetGamificationState } from "@/shared/services/gamification";
+import { setPreferredLanguage } from "@/shared/store/language-store";
+import {
+  getEffectiveThemeMode,
+  useAppSettings,
+} from "@/shared/store/settings-store";
+import { useTranslation } from "@/shared/i18n";
 import {
   getStudentProfile,
   resetStudentProfile,
@@ -18,26 +26,155 @@ import {
   useStudentProfile,
 } from "@/shared/store/user-store";
 import { Ionicons } from "@expo/vector-icons";
+import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { useFocusEffect } from "@react-navigation/native";
 import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
-import { useCallback, useRef, useState } from "react";
-import { Alert, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { useCallback, useMemo, useRef, useState } from "react";
+import {
+  Alert,
+  Image,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  useColorScheme,
+  View,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 export default function ProfileScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const tabBarHeight = useBottomTabBarHeight();
   const studentProfile = useStudentProfile();
+  const appSettings = useAppSettings();
+  const { language } = useTranslation();
+  const deviceTheme = useColorScheme();
+  const isDark =
+    appSettings.themeMode === "system"
+      ? (deviceTheme ?? getEffectiveThemeMode()) === "dark"
+      : appSettings.themeMode === "dark";
+  const isOm = language === "om";
+  const copy = {
+    syncingProfile: isOm
+      ? "Piroofaayilii wajjiin wal-simsiisaa jira..."
+      : "Syncing profile...",
+    profileCenter: isOm ? "Wiirtuu Piroofaayilii" : "Profile Center",
+    student: isOm ? "Barataa" : "Student",
+    eduTwin: "EduTwin",
+    studentProfile: isOm ? "Piroofaayilii Barataa" : "Student Profile",
+    fullName: isOm ? "Maqaa guutuu" : "Full Name",
+    notSet: isOm ? "Hin guutamne" : "Not set",
+    grade: isOm ? "Kutaa" : "Grade",
+    language: isOm ? "Afaan" : "Language",
+    learningLevel: isOm ? "Sadarkaa barnootaa" : "Learning Level",
+    needsSupport: isOm
+      ? "Deeggarsa qajeelfamaa barbaada"
+      : "Needs guided support",
+    advanced: isOm ? "Barataa sadarkaa ol'aanaa" : "Advanced performer",
+    onTrack: isOm ? "Barataa adeemsa gaarii irratti" : "On-track learner",
+    twinName: isOm ? "Maqaa Twin" : "Twin Name",
+    supportSubjects: isOm ? "Matadureewwan deeggarsa" : "Support Subjects",
+    strongSubjects: isOm ? "Matadureewwan cimoo" : "Strong Subjects",
+    xp: isOm ? "XP" : "XP",
+    mastery: isOm ? "Sadarkaa Mastery" : "Mastery",
+    bonusUnlock: isOm ? "XP 2000 ol jechuun Canvas fi AR dabalataa ni banii" : "XP above 2000 unlocks extra Canvas and AR access",
+    redeemBonus: isOm ? "XP seerii keessaa banuu" : "Redeem lab bonus",
+    bonusUnlocked: isOm ? "Lab bonus bantee jira" : "Lab bonus unlocked",
+    logout: isOm ? "Ba'i" : "Logout",
+    failedFetchProfile: isOm
+      ? "Piroofaayilii fiduun hin milkoofne"
+      : "Failed to fetch profile",
+    failedUpdateProfile: isOm
+      ? "Piroofaayilii haaromsuun hin milkoofne."
+      : "Failed to update profile.",
+    mediaPermission: isOm
+      ? "Hayyama suuraa barbaachisaadha piroofaayilii jijjiiruuf."
+      : "Media permission is required to set a profile photo.",
+    couldNotPickImage: isOm
+      ? "Suuraa filachuun hin danda'amne. Irra deebi'ii yaali."
+      : "Could not pick image. Please try again.",
+    none: isOm ? "Hin jiru" : "None",
+    chooseStudentAvatar: isOm
+      ? "Suuraa Barataa Filadhu"
+      : "Choose Student Avatar",
+    chooseTwinAvatar: isOm ? "Suuraa EduTwin Filadhu" : "Choose EduTwin Avatar",
+    useThisPhoto: isOm ? "Suuraa kana fayyadamaa?" : "Use this photo?",
+    back: isOm ? "Duubatti" : "Back",
+    usePhoto: isOm ? "Suuraa Fayyadami" : "Use Photo",
+    applyingPhoto: isOm ? "Suuraa olkaa'aa jira..." : "Saving photo...",
+    photo: isOm ? "suuraa" : "photo",
+    chooseOption: isOm ? "Filannoo tokko filadhu" : "Choose an option",
+    changePhoto: isOm ? "Suuraa jijjiiri" : "Change photo",
+    addPhoto: isOm ? "Suuraa dabali" : "Add photo",
+    chooseCartoon: isOm ? "Suuraa kaartoona filadhu" : "Choose cartoon avatar",
+    deletePhoto: isOm ? "Suuraa haqi" : "Delete photo",
+    cancel: isOm ? "Dhiisi" : "Cancel",
+    editProfile: isOm ? "Piroofaayilii Sirreessi" : "Edit Profile",
+    editProfileTitle: isOm ? "Piroofaayilii Sirreessi" : "Edit Profile",
+    fullNamePlaceholder: isOm ? "Maqaa guutuu galchi" : "Enter full name",
+    twinNamePlaceholder: isOm ? "Maqaa Twin galchi" : "Enter twin name",
+    gradePlaceholder: isOm ? "Kutaa (fkn 9)" : "Grade (e.g. 9)",
+    save: isOm ? "Olkaa'i" : "Save",
+    profileSetting: isOm ? "Piroofaayilii" : "Profile",
+    general: isOm ? "Waliigala" : "General",
+    preferences: isOm ? "Filannoo" : "Preferences",
+    editProfileSubtitle: isOm
+      ? "Maqaa fi suuraa piroofaayilii jijjiiri"
+      : "Change profile details and image",
+    changePassword: isOm ? "Jecha Darbii Jijjiiri" : "Change Password",
+    changePasswordSubtitle: isOm
+      ? "Nageenya akaawuntii cimsii"
+      : "Update and strengthen account security",
+    twinProfile: isOm ? "Piroofaayilii Twin" : "Twin Profile",
+    twinProfileSubtitle: isOm
+      ? "Maqaa fi suuraa twin jijjiiri"
+      : "Change twin name and image",
+    subscriptionStatus: isOm ? "Haala Maallaqa Galmee" : "Subscription Status",
+    subscriptionActive: isOm ? "Hojii irra jira" : "Active",
+    subscriptionExpired: isOm ? "Yeroon isaa darbe" : "Expired",
+    noSubscription: isOm ? "Galmeen hin jiru" : "No active subscription",
+    expiresOn: isOm ? "Itti fufa hanga" : "Expires on",
+    expiredOn: isOm ? "Darbee jira irraa" : "Expired on",
+    faq: isOm ? "Gaaffii Irra Deddeebii" : "FAQ",
+    faqSubtitle: isOm
+      ? "Gaaffilee yeroo baayyee gaafataman"
+      : "Find answers to common questions",
+    accountSnapshot: isOm ? "Haala Akaawuntii" : "Account Snapshot",
+    comingSoon: isOm ? "Dhiheenyatti ni dabalama" : "Coming soon",
+    changeDetails: isOm ? "Odeeffannoo Jijjiiri" : "Change details",
+    changeStudentImage: isOm
+      ? "Suuraa Barataa Jijjiiri"
+      : "Change student image",
+    changeTwinName: isOm ? "Maqaa Twin Jijjiiri" : "Change twin name",
+    changeTwinImage: isOm ? "Suuraa Twin Jijjiiri" : "Change twin image",
+  };
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncError, setSyncError] = useState("");
   const [activeCard, setActiveCard] = useState<"student" | "twin">("student");
   const [isPickingPhoto, setIsPickingPhoto] = useState(false);
   const [avatarPickerVisible, setAvatarPickerVisible] = useState(false);
-  const [avatarPickerTarget, setAvatarPickerTarget] = useState<"student" | "twin">("student");
+  const [avatarPickerTarget, setAvatarPickerTarget] = useState<
+    "student" | "twin"
+  >("student");
   const [sliderWidth, setSliderWidth] = useState(0);
   const [pendingPhotoUri, setPendingPhotoUri] = useState("");
-  const [pendingPhotoTarget, setPendingPhotoTarget] = useState<"student" | "twin" | null>(null);
+  const [pendingPhotoTarget, setPendingPhotoTarget] = useState<
+    "student" | "twin" | null
+  >(null);
+  const [isApplyingPhoto, setIsApplyingPhoto] = useState(false);
+  const [isEditModalVisible, setIsEditModalVisible] = useState(false);
+  const [editModalMode, setEditModalMode] = useState<"student" | "twin">(
+    "student",
+  );
+  const [isSnapshotExpanded, setIsSnapshotExpanded] = useState(false);
+  const [editFullName, setEditFullName] = useState("");
+  const [editTwinName, setEditTwinName] = useState("");
+  const [editLanguage, setEditLanguage] = useState<"en" | "om">("en");
   const sliderRef = useRef<ScrollView>(null);
 
   useFocusEffect(
@@ -60,7 +197,7 @@ export default function ProfileScreen() {
           console.warn("Profile fetch failed:", error);
           if (isMounted) {
             const message =
-              error instanceof Error ? error.message : "Failed to fetch profile";
+              error instanceof Error ? error.message : copy.failedFetchProfile;
             setSyncError(message);
           }
         } finally {
@@ -78,9 +215,90 @@ export default function ProfileScreen() {
     }, []),
   );
 
-  const supportSubjects = studentProfile.supportSubjects.join(", ") || "None";
-  const strongSubjects = studentProfile.strongSubjects.join(", ") || "None";
-  const studentInitials = (studentProfile.fullName || "Student")
+  const supportSubjects =
+    studentProfile.supportSubjects.join(", ") || copy.none;
+  const strongSubjects = studentProfile.strongSubjects.join(", ") || copy.none;
+  const profileXp = studentProfile.xp ?? 0;
+  const masteryPercent = Math.max(0, Math.min(100, Math.round(studentProfile.masteryScore ?? 0)));
+  const bonusUnlockAvailable = profileXp > 2000;
+  const rawSubscriptionExpiry =
+    studentProfile.subscriptionPeriodEnd ||
+    (studentProfile as unknown as {
+      subscriptionExpiresAt?: string | null;
+      subscription_expires_at?: string | null;
+    }).subscriptionExpiresAt ||
+    (studentProfile as unknown as {
+      subscriptionExpiresAt?: string | null;
+      subscription_expires_at?: string | null;
+    }).subscription_expires_at ||
+    null;
+  const subscriptionStatusValue = (studentProfile.subscriptionStatus || "").toLowerCase();
+  const isBackendSubscribed =
+    studentProfile.isSubscribed === true ||
+    subscriptionStatusValue === "active" ||
+    subscriptionStatusValue === "paid";
+
+  const subscriptionMeta = useMemo(() => {
+    if (isBackendSubscribed) {
+      if (!rawSubscriptionExpiry) {
+        return {
+          label: copy.subscriptionActive,
+          detail: copy.subscriptionActive,
+          isExpired: false,
+        };
+      }
+
+      const parsedDate = new Date(rawSubscriptionExpiry);
+      if (Number.isNaN(parsedDate.getTime())) {
+        return {
+          label: copy.subscriptionActive,
+          detail: copy.subscriptionActive,
+          isExpired: false,
+        };
+      }
+
+      return {
+        label: copy.subscriptionActive,
+        detail: `${copy.expiresOn} ${parsedDate.toLocaleDateString()}`,
+        isExpired: false,
+      };
+    }
+
+    if (!rawSubscriptionExpiry) {
+      return {
+        label: copy.noSubscription,
+        detail: copy.noSubscription,
+        isExpired: true,
+      };
+    }
+
+    const parsedDate = new Date(rawSubscriptionExpiry);
+    if (Number.isNaN(parsedDate.getTime())) {
+      return {
+        label: copy.noSubscription,
+        detail: copy.noSubscription,
+        isExpired: true,
+      };
+    }
+
+    const isExpired = parsedDate.getTime() < Date.now();
+    const formatted = parsedDate.toLocaleDateString();
+
+    return {
+      label: isExpired ? copy.subscriptionExpired : copy.subscriptionActive,
+      detail: `${isExpired ? copy.expiredOn : copy.expiresOn} ${formatted}`,
+      isExpired,
+    };
+  }, [
+    copy.expiredOn,
+    copy.expiresOn,
+    copy.noSubscription,
+    copy.subscriptionActive,
+    copy.subscriptionExpired,
+    isBackendSubscribed,
+    rawSubscriptionExpiry,
+  ]);
+  const studentInitials = (studentProfile.fullName || copy.student)
     .split(" ")
     .filter(Boolean)
     .slice(0, 2)
@@ -89,7 +307,9 @@ export default function ProfileScreen() {
   const studentPhotoUri = studentProfile.studentPhotoUri?.trim() || "";
   const twinPhotoUri = studentProfile.twinPhotoUri?.trim() || "";
 
-  const applyBackendProfile = (profile: Awaited<ReturnType<typeof fetchStudentProfile>>) => {
+  const applyBackendProfile = (
+    profile: Awaited<ReturnType<typeof fetchStudentProfile>>,
+  ) => {
     setCachedStudentProfile(profile);
 
     const currentProfile = getStudentProfile();
@@ -98,11 +318,13 @@ export default function ProfileScreen() {
     updateStudentProfile({
       ...mappedProfile,
       supportSubjects:
-        Array.isArray(mappedProfile.supportSubjects) && mappedProfile.supportSubjects.length > 0
+        Array.isArray(mappedProfile.supportSubjects) &&
+        mappedProfile.supportSubjects.length > 0
           ? mappedProfile.supportSubjects
           : currentProfile.supportSubjects,
       strongSubjects:
-        Array.isArray(mappedProfile.strongSubjects) && mappedProfile.strongSubjects.length > 0
+        Array.isArray(mappedProfile.strongSubjects) &&
+        mappedProfile.strongSubjects.length > 0
           ? mappedProfile.strongSubjects
           : currentProfile.strongSubjects,
       studentPhotoUri:
@@ -114,9 +336,16 @@ export default function ProfileScreen() {
           ? mappedProfile.twinPhotoUri
           : currentProfile.twinPhotoUri,
     });
+    void setPreferredLanguage(
+      mappedProfile.preferredLanguage ||
+        currentProfile.preferredLanguage ||
+        "en",
+    );
   };
 
-  const persistProfileChanges = async (updates: Parameters<typeof updateStudentProfile>[0]) => {
+  const persistProfileChanges = async (
+    updates: Parameters<typeof updateStudentProfile>[0],
+  ) => {
     setIsSyncing(true);
     setSyncError("");
 
@@ -124,7 +353,8 @@ export default function ProfileScreen() {
       const savedProfile = await saveStudentProfile(updates);
       applyBackendProfile(savedProfile);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to update profile.";
+      const message =
+        error instanceof Error ? error.message : copy.failedUpdateProfile;
       setSyncError(message);
       throw error;
     } finally {
@@ -138,9 +368,10 @@ export default function ProfileScreen() {
       setIsPickingPhoto(true);
       setSyncError("");
 
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      const permission =
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permission.granted) {
-        setSyncError("Media permission is required to set a profile photo.");
+        setSyncError(copy.mediaPermission);
         return;
       }
 
@@ -163,7 +394,7 @@ export default function ProfileScreen() {
       setPendingPhotoTarget(target);
       setPendingPhotoUri(uri);
     } catch {
-      setSyncError("Could not pick image. Please try again.");
+      setSyncError(copy.couldNotPickImage);
     } finally {
       setIsPickingPhoto(false);
     }
@@ -175,16 +406,27 @@ export default function ProfileScreen() {
     }
 
     try {
+      setIsApplyingPhoto(true);
       if (pendingPhotoTarget === "student") {
-        await persistProfileChanges({ studentPhotoUri: pendingPhotoUri.trim() });
+        const uploaded = await uploadStudentPhotoFromProfile(
+          pendingPhotoUri.trim(),
+        );
+        await persistProfileChanges({
+          studentPhotoUri: uploaded.student_photo_url,
+        });
       } else {
         await persistProfileChanges({ twinPhotoUri: pendingPhotoUri.trim() });
       }
 
       setPendingPhotoUri("");
       setPendingPhotoTarget(null);
-    } catch {
-      // Error is already shown in syncError.
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : copy.failedUpdateProfile;
+      setSyncError(message);
+      Alert.alert(copy.failedUpdateProfile, message);
+    } finally {
+      setIsApplyingPhoto(false);
     }
   };
 
@@ -194,34 +436,39 @@ export default function ProfileScreen() {
   };
 
   const openPhotoOptions = (target: "student" | "twin") => {
-    const hasPhoto = target === "student" ? Boolean(studentPhotoUri) : Boolean(twinPhotoUri);
-    const targetLabel = target === "student" ? "Student" : "EduTwin";
+    const hasPhoto =
+      target === "student" ? Boolean(studentPhotoUri) : Boolean(twinPhotoUri);
+    const targetLabel = target === "student" ? copy.student : copy.eduTwin;
 
-    Alert.alert(`${targetLabel} photo`, "Choose an option", [
+    Alert.alert(`${targetLabel} ${copy.photo}`, copy.chooseOption, [
       {
-        text: hasPhoto ? "Change photo" : "Add photo",
+        text: hasPhoto ? copy.changePhoto : copy.addPhoto,
         onPress: () => {
           void pickPhotoFor(target);
         },
       },
-      {
-        text: "Choose cartoon avatar",
-        onPress: () => {
-          setAvatarPickerTarget(target);
-          setAvatarPickerVisible(true);
-        },
-      },
+      ...(target === "twin"
+        ? [
+            {
+              text: copy.chooseCartoon,
+              onPress: () => {
+                setAvatarPickerTarget(target);
+                setAvatarPickerVisible(true);
+              },
+            },
+          ]
+        : []),
       ...(hasPhoto
         ? [
             {
-              text: "Delete photo",
+              text: copy.deletePhoto,
               style: "destructive" as const,
               onPress: () => clearPhotoFor(target),
             },
           ]
         : []),
       {
-        text: "Cancel",
+        text: copy.cancel,
         style: "cancel",
       },
     ]);
@@ -235,10 +482,20 @@ export default function ProfileScreen() {
     await persistProfileChanges({ twinPhotoUri: undefined });
   };
 
-  const choosePresetAvatar = async (target: "student" | "twin", uri: string) => {
+  const choosePresetAvatar = async (
+    target: "student" | "twin",
+    uri: string,
+  ) => {
     try {
       if (target === "student") {
-        await persistProfileChanges({ studentPhotoUri: uri });
+        if (/^https?:\/\//i.test(uri)) {
+          await persistProfileChanges({ studentPhotoUri: uri });
+        } else {
+          const uploaded = await uploadStudentPhotoFromProfile(uri);
+          await persistProfileChanges({
+            studentPhotoUri: uploaded.student_photo_url,
+          });
+        }
       } else {
         await persistProfileChanges({ twinPhotoUri: uri });
       }
@@ -250,7 +507,9 @@ export default function ProfileScreen() {
   };
 
   const presetAvatarList =
-    avatarPickerTarget === "student" ? STUDENT_CARTOON_AVATARS : TWIN_CARTOON_AVATARS;
+    avatarPickerTarget === "student"
+      ? STUDENT_CARTOON_AVATARS
+      : TWIN_CARTOON_AVATARS;
 
   const scrollToCard = (target: "student" | "twin") => {
     setActiveCard(target);
@@ -270,8 +529,69 @@ export default function ProfileScreen() {
     router.replace("/(auth)/login" as never);
   };
 
+  const openEditProfile = () => {
+    setEditFullName(studentProfile.fullName || "");
+    setEditLanguage(studentProfile.preferredLanguage || "en");
+    setEditModalMode("student");
+    setIsEditModalVisible(true);
+  };
+
+  const openEditProfileRowOptions = () => {
+    setEditFullName(studentProfile.fullName || "");
+    setEditLanguage(studentProfile.preferredLanguage || "en");
+    setEditModalMode("student");
+    setIsEditModalVisible(true);
+  };
+
+  const openTwinProfileRowOptions = () => {
+    setEditTwinName(studentProfile.twinName || "");
+    setEditModalMode("twin");
+    setIsEditModalVisible(true);
+  };
+
+  const handleSaveProfileEdit = async () => {
+    const updates: Parameters<typeof updateStudentProfile>[0] =
+      editModalMode === "student"
+        ? {
+            fullName: editFullName.trim() || studentProfile.fullName,
+            preferredLanguage: editLanguage,
+          }
+        : {
+            twinName: editTwinName.trim() || studentProfile.twinName,
+          };
+
+    try {
+      await persistProfileChanges(updates);
+      setIsEditModalVisible(false);
+    } catch {
+      // Error already shown via syncError.
+    }
+  };
+
+  const handleRedeemLabBonus = async () => {
+    try {
+      setIsSyncing(true);
+      setSyncError("");
+      const profile = await redeemLabBonusUnlock();
+      applyBackendProfile(profile);
+      Alert.alert(copy.bonusUnlocked, copy.bonusUnlock);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : copy.failedUpdateProfile;
+      setSyncError(message);
+      Alert.alert(copy.failedUpdateProfile, message);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   return (
-    <View style={styles.screen}>
+    <View
+      style={[
+        styles.screen,
+        { backgroundColor: isDark ? "#08111F" : "#FFFFFF" },
+      ]}
+    >
       <View pointerEvents="none" style={styles.bgGlowBlue} />
       <View pointerEvents="none" style={styles.bgGlowGold} />
       <View pointerEvents="none" style={styles.bgGlowSky} />
@@ -280,21 +600,45 @@ export default function ProfileScreen() {
         contentContainerStyle={[
           styles.container,
           {
-            paddingTop: insets.top + 16,
-            paddingBottom: 120 + Math.max(insets.bottom, 8),
+            paddingTop: insets.top + 14,
+            paddingBottom: Math.max(insets.bottom + tabBarHeight + 8, 16),
           },
         ]}
         showsVerticalScrollIndicator={false}
         overScrollMode="never"
         scrollEventThrottle={16}
       >
-        <View style={styles.heroCard}>
-          {isSyncing && (
-            <View style={styles.syncPill}>
-              <Text style={styles.syncPillText}>Syncing profile...</Text>
-            </View>
-          )}
+        <View
+          style={[
+            styles.profileBadgeCard,
+            {
+              backgroundColor: isDark ? "#0E1A2C" : "rgba(255, 255, 255, 0.94)",
+              borderColor: isDark ? "#22324E" : "rgba(11, 95, 255, 0.16)",
+            },
+          ]}
+        >
+          <View style={styles.profileBadgeRow}>
+            <Ionicons name="person-circle-outline" size={15} color="#0B5FFF" />
+            <Text
+              style={[
+                styles.profileBadgeText,
+                { color: isDark ? "#F4F7FB" : "#1A202C" },
+              ]}
+            >
+              {copy.profileSetting}
+            </Text>
+          </View>
+        </View>
 
+        <View
+          style={[
+            styles.heroCard,
+            {
+              backgroundColor: isDark ? "#0E1A2C" : "#FFFFFF",
+              borderColor: isDark ? "#22324E" : "rgba(11, 95, 255, 0.12)",
+            },
+          ]}
+        >
           {!!syncError && (
             <View style={styles.syncErrorPill}>
               <Text style={styles.syncErrorText}>{syncError}</Text>
@@ -311,7 +655,10 @@ export default function ProfileScreen() {
               <View style={styles.studentAvatarOuter}>
                 <View style={styles.studentAvatarInner}>
                   {studentPhotoUri ? (
-                    <Image source={{ uri: studentPhotoUri }} style={styles.studentAvatarImage} />
+                    <Image
+                      source={{ uri: studentPhotoUri }}
+                      style={styles.studentAvatarImage}
+                    />
                   ) : (
                     <Text style={styles.studentAvatarText}>
                       {studentInitials}
@@ -322,44 +669,480 @@ export default function ProfileScreen() {
             </TouchableOpacity>
 
             <View style={styles.heroTextBlock}>
-              <View style={styles.heroBadge}>
-                <Ionicons
-                  name="person-circle-outline"
-                  size={14}
-                  color="#0B5FFF"
-                />
-                <Text style={styles.heroBadgeText}>Profile Center</Text>
-              </View>
+              <Text
+                style={[
+                  styles.title,
+                  { color: isDark ? "#F4F7FB" : "#1A202C" },
+                ]}
+              >
+                {studentProfile.fullName || copy.student}
+              </Text>
 
-              <Text style={styles.title}>
-                {studentProfile.fullName || "Student"}
+              <Text style={[styles.heroTopMeta, { color: isDark ? "#AAB7CF" : "#60779E" }]}>
+                {copy.grade} {studentProfile.grade} • {studentProfile.preferredLanguage.toUpperCase()}
               </Text>
             </View>
           </View>
-
         </View>
 
-        <View style={styles.sectionCard}>
-          <View style={styles.profileSwitchRow}>
-            <TouchableOpacity style={styles.profileSwitchItem} onPress={() => scrollToCard("student")}>
+        <View
+          style={[
+            styles.groupCard,
+            {
+              backgroundColor: isDark ? "#0E1A2C" : "#FFFFFF",
+              borderColor: isDark ? "#22324E" : "#E6EEFF",
+            },
+          ]}
+        >
+          <Text
+            style={[styles.groupTitle, { color: isDark ? "#C5D6F2" : "#7A879D" }]}
+          >
+            {copy.general}
+          </Text>
+
+          <TouchableOpacity
+            style={styles.settingRow}
+            onPress={openEditProfileRowOptions}
+            activeOpacity={0.85}
+          >
+            <View
+              style={[
+                styles.settingIconWrap,
+                { backgroundColor: isDark ? "#12213A" : "#EEF4FF" },
+              ]}
+            >
+              <Ionicons name="person-outline" size={16} color="#5A8DFF" />
+            </View>
+            <View style={styles.settingTextWrap}>
+              <Text
+                style={[
+                  styles.settingTitle,
+                  { color: isDark ? "#F4F7FB" : "#1A202C" },
+                ]}
+              >
+                {copy.editProfile}
+              </Text>
+              <Text
+                style={[
+                  styles.settingSubtitle,
+                  { color: isDark ? "#9EB2D4" : "#8A97AC" },
+                ]}
+              >
+                {copy.editProfileSubtitle}
+              </Text>
+            </View>
+            <Ionicons
+              name="chevron-forward"
+              size={18}
+              color={isDark ? "#7D9AC6" : "#A4B1C4"}
+            />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.settingRow}
+            onPress={() => Alert.alert(copy.changePassword, copy.comingSoon)}
+            activeOpacity={0.85}
+          >
+            <View
+              style={[
+                styles.settingIconWrap,
+                { backgroundColor: isDark ? "#12213A" : "#EEF4FF" },
+              ]}
+            >
+              <Ionicons
+                name="lock-closed-outline"
+                size={16}
+                color="#5A8DFF"
+              />
+            </View>
+            <View style={styles.settingTextWrap}>
+              <Text
+                style={[
+                  styles.settingTitle,
+                  { color: isDark ? "#F4F7FB" : "#1A202C" },
+                ]}
+              >
+                {copy.changePassword}
+              </Text>
+              <Text
+                style={[
+                  styles.settingSubtitle,
+                  { color: isDark ? "#9EB2D4" : "#8A97AC" },
+                ]}
+              >
+                {copy.changePasswordSubtitle}
+              </Text>
+            </View>
+            <Ionicons
+              name="chevron-forward"
+              size={18}
+              color={isDark ? "#7D9AC6" : "#A4B1C4"}
+            />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.settingRow}
+            onPress={openTwinProfileRowOptions}
+            activeOpacity={0.85}
+          >
+            <View
+              style={[
+                styles.settingIconWrap,
+                { backgroundColor: isDark ? "#12213A" : "#EEF4FF" },
+              ]}
+            >
+              <Ionicons
+                name="shield-checkmark-outline"
+                size={16}
+                color="#5A8DFF"
+              />
+            </View>
+            <View style={styles.settingTextWrap}>
+              <Text
+                style={[
+                  styles.settingTitle,
+                  { color: isDark ? "#F4F7FB" : "#1A202C" },
+                ]}
+              >
+                {copy.twinProfile}
+              </Text>
+              <Text
+                style={[
+                  styles.settingSubtitle,
+                  { color: isDark ? "#9EB2D4" : "#8A97AC" },
+                ]}
+              >
+                {copy.twinProfileSubtitle}
+              </Text>
+            </View>
+            <Ionicons
+              name="chevron-forward"
+              size={18}
+              color={isDark ? "#7D9AC6" : "#A4B1C4"}
+            />
+          </TouchableOpacity>
+
+          <View style={styles.settingRowLast}>
+            <View
+              style={[
+                styles.settingIconWrap,
+                { backgroundColor: isDark ? "#12213A" : "#EEF4FF" },
+              ]}
+            >
+              <Ionicons name="card-outline" size={16} color="#5A8DFF" />
+            </View>
+            <View style={styles.settingTextWrap}>
+              <Text
+                style={[
+                  styles.settingTitle,
+                  { color: isDark ? "#F4F7FB" : "#1A202C" },
+                ]}
+              >
+                {copy.subscriptionStatus}
+              </Text>
+              <Text
+                style={[
+                  styles.settingSubtitle,
+                  {
+                    color: subscriptionMeta.isExpired
+                      ? isDark
+                        ? "#FFB4BA"
+                        : "#B4232D"
+                      : isDark
+                        ? "#9EB2D4"
+                        : "#8A97AC",
+                  },
+                ]}
+              >
+                {subscriptionMeta.detail}
+              </Text>
+            </View>
+            <View
+              style={[
+                styles.subscriptionPill,
+                {
+                  backgroundColor: subscriptionMeta.isExpired
+                    ? isDark
+                      ? "rgba(180,35,45,0.2)"
+                      : "#FFF1F2"
+                    : isDark
+                      ? "rgba(11,95,255,0.24)"
+                      : "#ECF3FF",
+                  borderColor: subscriptionMeta.isExpired
+                    ? isDark
+                      ? "rgba(254,202,202,0.34)"
+                      : "#FECACA"
+                    : isDark
+                      ? "#2E4368"
+                      : "#D4E3FA",
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.subscriptionPillText,
+                  {
+                    color: subscriptionMeta.isExpired
+                      ? isDark
+                        ? "#FFB4BA"
+                        : "#B4232D"
+                      : isDark
+                        ? "#BFD6FF"
+                        : "#1F4E9D",
+                  },
+                ]}
+              >
+                {subscriptionMeta.label}
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        <View
+          style={[
+            styles.groupCard,
+            {
+              backgroundColor: isDark ? "#0E1A2C" : "#FFFFFF",
+              borderColor: isDark ? "#22324E" : "#E6EEFF",
+            },
+          ]}
+        >
+          <Text
+            style={[styles.groupTitle, { color: isDark ? "#C5D6F2" : "#7A879D" }]}
+          >
+            {copy.preferences}
+          </Text>
+
+          <TouchableOpacity
+            style={styles.settingRow}
+            onPress={() => Alert.alert(copy.faq, copy.comingSoon)}
+            activeOpacity={0.85}
+          >
+            <View
+              style={[
+                styles.settingIconWrap,
+                { backgroundColor: isDark ? "#12213A" : "#EEF4FF" },
+              ]}
+            >
+              <Ionicons
+                name="help-circle-outline"
+                size={16}
+                color="#5A8DFF"
+              />
+            </View>
+            <View style={styles.settingTextWrap}>
+              <Text
+                style={[
+                  styles.settingTitle,
+                  { color: isDark ? "#F4F7FB" : "#1A202C" },
+                ]}
+              >
+                {copy.faq}
+              </Text>
+              <Text
+                style={[
+                  styles.settingSubtitle,
+                  { color: isDark ? "#9EB2D4" : "#8A97AC" },
+                ]}
+              >
+                {copy.faqSubtitle}
+              </Text>
+            </View>
+            <Ionicons
+              name="chevron-forward"
+              size={18}
+              color={isDark ? "#7D9AC6" : "#A4B1C4"}
+            />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.settingRowLast}
+            onPress={handleLogout}
+            activeOpacity={0.85}
+          >
+            <View
+              style={[
+                styles.settingIconWrap,
+                {
+                  backgroundColor: isDark
+                    ? "rgba(180,35,45,0.2)"
+                    : "#FFF1F2",
+                },
+              ]}
+            >
+              <Ionicons
+                name="log-out-outline"
+                size={16}
+                color={isDark ? "#FFB4BA" : "#B4232D"}
+              />
+            </View>
+            <View style={styles.settingTextWrap}>
+              <Text
+                style={[
+                  styles.settingTitle,
+                  { color: isDark ? "#FFB4BA" : "#B4232D" },
+                ]}
+              >
+                {copy.logout}
+              </Text>
+            </View>
+            <Ionicons
+              name="chevron-forward"
+              size={18}
+              color={isDark ? "#7D9AC6" : "#A4B1C4"}
+            />
+          </TouchableOpacity>
+        </View>
+
+        <View
+          style={[
+            styles.groupCard,
+            {
+              backgroundColor: isDark ? "#0E1A2C" : "#FFFFFF",
+              borderColor: isDark ? "#22324E" : "#E6EEFF",
+            },
+          ]}
+        >
+          <TouchableOpacity
+            style={styles.snapshotHeaderRow}
+            onPress={() => setIsSnapshotExpanded((prev) => !prev)}
+            activeOpacity={0.85}
+          >
+            <Text
+              style={[styles.groupTitle, { color: isDark ? "#C5D6F2" : "#7A879D" }]}
+            >
+              {copy.accountSnapshot}
+            </Text>
+            <Ionicons
+              name={isSnapshotExpanded ? "chevron-up" : "chevron-down"}
+              size={18}
+              color={isDark ? "#9EB2D4" : "#8A97AC"}
+            />
+          </TouchableOpacity>
+
+          {isSnapshotExpanded ? (
+            <>
+              <View style={styles.snapshotMetricsRow}>
+                <View
+                  style={[
+                    styles.snapshotMetricCard,
+                    { backgroundColor: isDark ? "#12213A" : "#F5F8FF", borderColor: isDark ? "#22324E" : "#D6E4FF" },
+                  ]}
+                >
+                  <Text style={[styles.snapshotMetricLabel, { color: isDark ? "#AAB7CF" : "#5A6C87" }]}>{copy.xp}</Text>
+                  <Text style={[styles.snapshotMetricValue, { color: isDark ? "#F4F7FB" : "#1A202C" }]}>{profileXp.toLocaleString()}</Text>
+                </View>
+                <View
+                  style={[
+                    styles.snapshotMetricCard,
+                    { backgroundColor: isDark ? "#12213A" : "#F5F8FF", borderColor: isDark ? "#22324E" : "#D6E4FF" },
+                  ]}
+                >
+                  <Text style={[styles.snapshotMetricLabel, { color: isDark ? "#AAB7CF" : "#5A6C87" }]}>{copy.mastery}</Text>
+                  <Text style={[styles.snapshotMetricValue, { color: isDark ? "#F4F7FB" : "#1A202C" }]}>{masteryPercent}%</Text>
+                </View>
+              </View>
+              <View
+                style={[
+                  styles.snapshotHintPill,
+                  { backgroundColor: bonusUnlockAvailable ? (isDark ? "rgba(11,95,255,0.18)" : "#ECF3FF") : (isDark ? "rgba(170,183,207,0.12)" : "#F2F5FA") },
+                ]}
+              >
+                <Ionicons name={bonusUnlockAvailable ? "sparkles-outline" : "lock-closed-outline"} size={14} color={bonusUnlockAvailable ? "#0B5FFF" : (isDark ? "#9EB2D4" : "#7A879D")} />
+                <Text style={[styles.snapshotHintText, { color: bonusUnlockAvailable ? (isDark ? "#BFD6FF" : "#1F4E9D") : (isDark ? "#9EB2D4" : "#7A879D") }]}>
+                  {bonusUnlockAvailable ? copy.bonusUnlock : (isOm ? "XP 2000 ol gochu" : "Earn 2000 XP to unlock extra Canvas and AR")}
+                </Text>
+              </View>
+              {bonusUnlockAvailable && !studentProfile.labBonusUnlock ? (
+                <TouchableOpacity
+                  style={[
+                    styles.redeemButton,
+                    { backgroundColor: isDark ? "#0B5FFF" : "#0B5FFF" },
+                  ]}
+                  onPress={() => void handleRedeemLabBonus()}
+                  disabled={isSyncing}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons name="sparkles-outline" size={14} color="#FFFFFF" />
+                  <Text style={styles.redeemButtonText}>{copy.redeemBonus}</Text>
+                </TouchableOpacity>
+              ) : studentProfile.labBonusUnlock ? (
+                <View style={styles.redeemSuccessPill}>
+                  <Ionicons name="checkmark-circle-outline" size={14} color="#0B5FFF" />
+                  <Text style={styles.redeemSuccessText}>{copy.bonusUnlocked}</Text>
+                </View>
+              ) : null}
+              <View style={styles.snapshotRow}>
+            <Text style={[styles.snapshotLabel, { color: isDark ? "#AAB7CF" : "#5A6C87" }]}>{copy.fullName}</Text>
+            <Text style={[styles.snapshotValue, { color: isDark ? "#F4F7FB" : "#1A202C" }]}>{studentProfile.fullName || copy.notSet}</Text>
+          </View>
+          <View style={styles.snapshotRow}>
+            <Text style={[styles.snapshotLabel, { color: isDark ? "#AAB7CF" : "#5A6C87" }]}>{copy.grade}</Text>
+            <Text style={[styles.snapshotValue, { color: isDark ? "#F4F7FB" : "#1A202C" }]}>{studentProfile.grade}</Text>
+          </View>
+          <View style={styles.snapshotRow}>
+            <Text style={[styles.snapshotLabel, { color: isDark ? "#AAB7CF" : "#5A6C87" }]}>{copy.language}</Text>
+            <Text style={[styles.snapshotValue, { color: isDark ? "#F4F7FB" : "#1A202C" }]}>{studentProfile.preferredLanguage.toUpperCase()}</Text>
+          </View>
+          <View style={styles.snapshotRow}>
+            <Text style={[styles.snapshotLabel, { color: isDark ? "#AAB7CF" : "#5A6C87" }]}>{copy.twinName}</Text>
+            <Text style={[styles.snapshotValue, { color: isDark ? "#F4F7FB" : "#1A202C" }]}>{studentProfile.twinName}</Text>
+          </View>
+          <View style={styles.snapshotRow}>
+            <Text style={[styles.snapshotLabel, { color: isDark ? "#AAB7CF" : "#5A6C87" }]}>{copy.supportSubjects}</Text>
+            <Text style={[styles.snapshotValue, { color: isDark ? "#F4F7FB" : "#1A202C" }]}>{supportSubjects}</Text>
+          </View>
+          <View style={styles.snapshotRowLast}>
+            <Text style={[styles.snapshotLabel, { color: isDark ? "#AAB7CF" : "#5A6C87" }]}>{copy.strongSubjects}</Text>
+            <Text style={[styles.snapshotValue, { color: isDark ? "#F4F7FB" : "#1A202C" }]}>{strongSubjects}</Text>
+          </View>
+            </>
+          ) : null}
+        </View>
+
+        <View
+          style={[
+            styles.sectionCard,
+            styles.hiddenLegacy,
+            {
+              backgroundColor: isDark ? "#0E1A2C" : "#FFFFFF",
+              borderColor: isDark ? "#22324E" : "rgba(11, 95, 255, 0.12)",
+            },
+          ]}
+        >
+          <View
+            style={[
+              styles.profileSwitchRow,
+              { borderBottomColor: isDark ? "#22324E" : "#E6EEFF" },
+            ]}
+          >
+            <TouchableOpacity
+              style={styles.profileSwitchItem}
+              onPress={() => scrollToCard("student")}
+            >
               <Text
                 style={[
                   styles.profileSwitchText,
+                  { color: isDark ? "#AAB7CF" : "#5A6C87" },
                   activeCard === "student" && styles.profileSwitchTextActive,
                 ]}
               >
-                Student
+                {copy.student}
               </Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.profileSwitchItem} onPress={() => scrollToCard("twin")}>
+            <TouchableOpacity
+              style={styles.profileSwitchItem}
+              onPress={() => scrollToCard("twin")}
+            >
               <Text
                 style={[
                   styles.profileSwitchText,
+                  { color: isDark ? "#AAB7CF" : "#5A6C87" },
                   activeCard === "twin" && styles.profileSwitchTextActive,
                 ]}
               >
-                EduTwin
+                {copy.eduTwin}
               </Text>
             </TouchableOpacity>
           </View>
@@ -376,17 +1159,36 @@ export default function ProfileScreen() {
               }
             }}
             onMomentumScrollEnd={(event) => {
-              const width = sliderWidth || event.nativeEvent.layoutMeasurement.width;
+              const width =
+                sliderWidth || event.nativeEvent.layoutMeasurement.width;
               if (!width) return;
-              const nextIndex = Math.round(event.nativeEvent.contentOffset.x / width);
+              const nextIndex = Math.round(
+                event.nativeEvent.contentOffset.x / width,
+              );
               setActiveCard(nextIndex <= 0 ? "student" : "twin");
             }}
           >
-            <View style={[styles.sliderPage, sliderWidth ? { width: sliderWidth } : null]}>
+            <View
+              style={[
+                styles.sliderPage,
+                sliderWidth ? { width: sliderWidth } : null,
+              ]}
+            >
               <View style={styles.pageAvatarRow}>
-                <View style={styles.profileSwitchCircle}>
+                <View
+                  style={[
+                    styles.profileSwitchCircle,
+                    {
+                      backgroundColor: isDark ? "#121C2E" : "#EEF4FF",
+                      borderColor: isDark ? "#2E4368" : "#D6E4FF",
+                    },
+                  ]}
+                >
                   {studentPhotoUri ? (
-                    <Image source={{ uri: studentPhotoUri }} style={styles.profileSwitchImage} />
+                    <Image
+                      source={{ uri: studentPhotoUri }}
+                      style={styles.profileSwitchImage}
+                    />
                   ) : (
                     <Image
                       source={require("../../../assets/images/icon.png")}
@@ -405,38 +1207,135 @@ export default function ProfileScreen() {
 
               <View style={styles.sectionTitleRow}>
                 <Ionicons name="school-outline" size={18} color="#0B5FFF" />
-                <Text style={styles.sectionTitle}>Student Profile</Text>
+                <Text
+                  style={[
+                    styles.sectionTitle,
+                    { color: isDark ? "#F4F7FB" : "#1A202C" },
+                  ]}
+                >
+                  {copy.studentProfile}
+                </Text>
               </View>
 
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Full Name</Text>
-                <Text style={styles.infoValue}>{studentProfile.fullName || "Not set"}</Text>
+              <View
+                style={[
+                  styles.infoRow,
+                  { borderBottomColor: isDark ? "#22324E" : "#E6EEFF" },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.infoLabel,
+                    { color: isDark ? "#AAB7CF" : "#5A6C87" },
+                  ]}
+                >
+                  {copy.fullName}
+                </Text>
+                <Text
+                  style={[
+                    styles.infoValue,
+                    { color: isDark ? "#F4F7FB" : "#1A202C" },
+                  ]}
+                >
+                  {studentProfile.fullName || copy.notSet}
+                </Text>
               </View>
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Grade</Text>
-                <Text style={styles.infoValue}>Grade {studentProfile.grade}</Text>
+              <View
+                style={[
+                  styles.infoRow,
+                  { borderBottomColor: isDark ? "#22324E" : "#E6EEFF" },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.infoLabel,
+                    { color: isDark ? "#AAB7CF" : "#5A6C87" },
+                  ]}
+                >
+                  {copy.grade}
+                </Text>
+                <Text
+                  style={[
+                    styles.infoValue,
+                    { color: isDark ? "#F4F7FB" : "#1A202C" },
+                  ]}
+                >
+                  {copy.grade} {studentProfile.grade}
+                </Text>
               </View>
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Language</Text>
-                <Text style={styles.infoValue}>{studentProfile.preferredLanguage.toUpperCase()}</Text>
+              <View
+                style={[
+                  styles.infoRow,
+                  { borderBottomColor: isDark ? "#22324E" : "#E6EEFF" },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.infoLabel,
+                    { color: isDark ? "#AAB7CF" : "#5A6C87" },
+                  ]}
+                >
+                  {copy.language}
+                </Text>
+                <Text
+                  style={[
+                    styles.infoValue,
+                    { color: isDark ? "#F4F7FB" : "#1A202C" },
+                  ]}
+                >
+                  {studentProfile.preferredLanguage.toUpperCase()}
+                </Text>
               </View>
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Learning Level</Text>
-                <Text style={styles.infoValue}>
+              <View
+                style={[
+                  styles.infoRow,
+                  { borderBottomColor: isDark ? "#22324E" : "#E6EEFF" },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.infoLabel,
+                    { color: isDark ? "#AAB7CF" : "#5A6C87" },
+                  ]}
+                >
+                  {copy.learningLevel}
+                </Text>
+                <Text
+                  style={[
+                    styles.infoValue,
+                    { color: isDark ? "#F4F7FB" : "#1A202C" },
+                  ]}
+                >
                   {studentProfile.performanceBand === "support"
-                    ? "Needs guided support"
+                    ? copy.needsSupport
                     : studentProfile.performanceBand === "top"
-                      ? "Advanced performer"
-                      : "On-track learner"}
+                      ? copy.advanced
+                      : copy.onTrack}
                 </Text>
               </View>
             </View>
 
-            <View style={[styles.sliderPage, sliderWidth ? { width: sliderWidth } : null]}>
+            <View
+              style={[
+                styles.sliderPage,
+                sliderWidth ? { width: sliderWidth } : null,
+              ]}
+            >
               <View style={styles.pageAvatarRow}>
-                <View style={styles.profileSwitchCircle}>
+                <View
+                  style={[
+                    styles.profileSwitchCircle,
+                    {
+                      backgroundColor: isDark ? "#121C2E" : "#EEF4FF",
+                      borderColor: isDark ? "#2E4368" : "#D6E4FF",
+                    },
+                  ]}
+                >
                   {twinPhotoUri ? (
-                    <Image source={{ uri: twinPhotoUri }} style={styles.profileSwitchImage} />
+                    <Image
+                      source={{ uri: twinPhotoUri }}
+                      style={styles.profileSwitchImage}
+                    />
                   ) : (
                     <Image
                       source={require("../../../assets/images/android-icon-foreground.png")}
@@ -453,32 +1352,324 @@ export default function ProfileScreen() {
                 </TouchableOpacity>
               </View>
 
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Twin Name</Text>
-                <Text style={styles.infoValue}>{studentProfile.twinName}</Text>
+              <View
+                style={[
+                  styles.infoRow,
+                  { borderBottomColor: isDark ? "#22324E" : "#E6EEFF" },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.infoLabel,
+                    { color: isDark ? "#AAB7CF" : "#5A6C87" },
+                  ]}
+                >
+                  {copy.twinName}
+                </Text>
+                <Text
+                  style={[
+                    styles.infoValue,
+                    { color: isDark ? "#F4F7FB" : "#1A202C" },
+                  ]}
+                >
+                  {studentProfile.twinName}
+                </Text>
               </View>
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Support Subjects</Text>
-                <Text style={styles.infoValue}>{supportSubjects}</Text>
+              <View
+                style={[
+                  styles.infoRow,
+                  { borderBottomColor: isDark ? "#22324E" : "#E6EEFF" },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.infoLabel,
+                    { color: isDark ? "#AAB7CF" : "#5A6C87" },
+                  ]}
+                >
+                  {copy.supportSubjects}
+                </Text>
+                <Text
+                  style={[
+                    styles.infoValue,
+                    { color: isDark ? "#F4F7FB" : "#1A202C" },
+                  ]}
+                >
+                  {supportSubjects}
+                </Text>
               </View>
               <View style={styles.infoRowLast}>
-                <Text style={styles.infoLabel}>Strong Subjects</Text>
-                <Text style={styles.infoValue}>{strongSubjects}</Text>
+                <Text
+                  style={[
+                    styles.infoLabel,
+                    { color: isDark ? "#AAB7CF" : "#5A6C87" },
+                  ]}
+                >
+                  {copy.strongSubjects}
+                </Text>
+                <Text
+                  style={[
+                    styles.infoValue,
+                    { color: isDark ? "#F4F7FB" : "#1A202C" },
+                  ]}
+                >
+                  {strongSubjects}
+                </Text>
               </View>
             </View>
           </ScrollView>
 
           <View style={styles.sliderDotsRow}>
-            <View style={[styles.sliderDot, activeCard === "student" && styles.sliderDotActive]} />
-            <View style={[styles.sliderDot, activeCard === "twin" && styles.sliderDotActive]} />
+            <View
+              style={[
+                styles.sliderDot,
+                { backgroundColor: isDark ? "#345078" : "#C8D8F5" },
+                activeCard === "student" && styles.sliderDotActive,
+              ]}
+            />
+            <View
+              style={[
+                styles.sliderDot,
+                { backgroundColor: isDark ? "#345078" : "#C8D8F5" },
+                activeCard === "twin" && styles.sliderDotActive,
+              ]}
+            />
           </View>
         </View>
 
-        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout} activeOpacity={0.85}>
-          <Ionicons name="log-out-outline" size={18} color="#B4232D" />
-          <Text style={styles.logoutButtonText}>Logout</Text>
+        <TouchableOpacity
+          style={[
+            styles.logoutButton,
+            styles.hiddenLegacy,
+            {
+              backgroundColor: isDark ? "rgba(180,35,45,0.14)" : "#FFF1F2",
+              borderColor: isDark ? "rgba(254,202,202,0.34)" : "#FECACA",
+            },
+          ]}
+          onPress={handleLogout}
+          activeOpacity={0.85}
+        >
+          <Ionicons
+            name="log-out-outline"
+            size={18}
+            color={isDark ? "#FFB4BA" : "#B4232D"}
+          />
+          <Text
+            style={[
+              styles.logoutButtonText,
+              { color: isDark ? "#FFB4BA" : "#B4232D" },
+            ]}
+          >
+            {copy.logout}
+          </Text>
         </TouchableOpacity>
       </ScrollView>
+
+      <Modal
+        visible={isEditModalVisible}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setIsEditModalVisible(false)}
+      >
+        <Pressable
+          style={styles.avatarPickerBackdrop}
+          onPress={() => setIsEditModalVisible(false)}
+        >
+          <Pressable
+            style={[
+              styles.avatarPickerCard,
+              {
+                backgroundColor: isDark ? "#0E1A2C" : "#FFFFFF",
+                borderColor: isDark ? "#22324E" : "#E1E9F8",
+              },
+            ]}
+            onPress={() => {}}
+          >
+            <View style={styles.avatarPickerHeader}>
+              <Text
+                style={[
+                  styles.avatarPickerTitle,
+                  { color: isDark ? "#F4F7FB" : "#1A202C" },
+                ]}
+              >
+                {editModalMode === "student"
+                  ? copy.editProfileTitle
+                  : copy.twinProfile}
+              </Text>
+              <TouchableOpacity
+                onPress={() => setIsEditModalVisible(false)}
+                style={[
+                  styles.avatarPickerClose,
+                  { backgroundColor: isDark ? "#121C2E" : "#EEF4FF" },
+                ]}
+              >
+                <Ionicons
+                  name="close"
+                  size={18}
+                  color={isDark ? "#F4F7FB" : "#1A202C"}
+                />
+              </TouchableOpacity>
+            </View>
+
+            {editModalMode === "student" ? (
+              <>
+                <View style={styles.formGroup}>
+              <Text style={[styles.formLabel, { color: isDark ? "#AAB7CF" : "#5A6C87" }]}>
+                {copy.fullName}
+              </Text>
+              <TextInput
+                value={editFullName}
+                onChangeText={setEditFullName}
+                placeholder={copy.fullNamePlaceholder}
+                placeholderTextColor={isDark ? "#6F86AC" : "#8FA3C0"}
+                style={[
+                  styles.formInput,
+                  {
+                    color: isDark ? "#F4F7FB" : "#1A202C",
+                    backgroundColor: isDark ? "#121C2E" : "#F7FAFF",
+                    borderColor: isDark ? "#2E4368" : "#D6E4FF",
+                  },
+                ]}
+              />
+                </View>
+
+                <View style={styles.formGroup}>
+                  <Text
+                    style={[
+                      styles.formLabel,
+                      { color: isDark ? "#AAB7CF" : "#5A6C87" },
+                    ]}
+                  >
+                    {copy.language}
+                  </Text>
+                  <View style={styles.languageRow}>
+                    <TouchableOpacity
+                      style={[
+                        styles.languageChip,
+                        editLanguage === "en" && styles.languageChipActive,
+                      ]}
+                      onPress={() => setEditLanguage("en")}
+                    >
+                      <Text
+                        style={[
+                          styles.languageChipText,
+                          editLanguage === "en" && styles.languageChipTextActive,
+                        ]}
+                      >
+                        EN
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        styles.languageChip,
+                        editLanguage === "om" && styles.languageChipActive,
+                      ]}
+                      onPress={() => setEditLanguage("om")}
+                    >
+                      <Text
+                        style={[
+                          styles.languageChipText,
+                          editLanguage === "om" && styles.languageChipTextActive,
+                        ]}
+                      >
+                        OM
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                <TouchableOpacity
+                  style={styles.imageActionButton}
+                  onPress={() => {
+                    setIsEditModalVisible(false);
+                    void pickPhotoFor("student");
+                  }}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons name="image-outline" size={16} color="#0B5FFF" />
+                  <Text style={styles.imageActionButtonText}>
+                    {copy.changeStudentImage}
+                  </Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <>
+                <View style={styles.formGroup}>
+                  <Text
+                    style={[
+                      styles.formLabel,
+                      { color: isDark ? "#AAB7CF" : "#5A6C87" },
+                    ]}
+                  >
+                    {copy.twinName}
+                  </Text>
+                  <TextInput
+                    value={editTwinName}
+                    onChangeText={setEditTwinName}
+                    placeholder={copy.twinNamePlaceholder}
+                    placeholderTextColor={isDark ? "#6F86AC" : "#8FA3C0"}
+                    style={[
+                      styles.formInput,
+                      {
+                        color: isDark ? "#F4F7FB" : "#1A202C",
+                        backgroundColor: isDark ? "#121C2E" : "#F7FAFF",
+                        borderColor: isDark ? "#2E4368" : "#D6E4FF",
+                      },
+                    ]}
+                  />
+                </View>
+
+                <TouchableOpacity
+                  style={styles.imageActionButton}
+                  onPress={() => {
+                    setIsEditModalVisible(false);
+                    void pickPhotoFor("twin");
+                  }}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons name="image-outline" size={16} color="#0B5FFF" />
+                  <Text style={styles.imageActionButtonText}>
+                    {copy.changeTwinImage}
+                  </Text>
+                </TouchableOpacity>
+              </>
+            )}
+
+            <View style={styles.pendingActionRow}>
+              <TouchableOpacity
+                style={[
+                  styles.pendingBackButton,
+                  {
+                    borderColor: isDark ? "#2E4368" : "#D6E4FF",
+                    backgroundColor: isDark ? "#121C2E" : "#F4F8FF",
+                  },
+                ]}
+                onPress={() => setIsEditModalVisible(false)}
+                activeOpacity={0.85}
+              >
+                <Text
+                  style={[
+                    styles.pendingBackText,
+                    { color: isDark ? "#BFD6FF" : "#35507E" },
+                  ]}
+                >
+                  {copy.cancel}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.pendingUseButton}
+                onPress={() => {
+                  void handleSaveProfileEdit();
+                }}
+                activeOpacity={0.85}
+                disabled={isSyncing}
+              >
+                <Text style={styles.pendingUseText}>{copy.save}</Text>
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       <Modal
         visible={avatarPickerVisible}
@@ -490,16 +1681,39 @@ export default function ProfileScreen() {
           style={styles.avatarPickerBackdrop}
           onPress={() => setAvatarPickerVisible(false)}
         >
-          <Pressable style={styles.avatarPickerCard} onPress={() => {}}>
+          <Pressable
+            style={[
+              styles.avatarPickerCard,
+              {
+                backgroundColor: isDark ? "#0E1A2C" : "#FFFFFF",
+                borderColor: isDark ? "#22324E" : "#E1E9F8",
+              },
+            ]}
+            onPress={() => {}}
+          >
             <View style={styles.avatarPickerHeader}>
-              <Text style={styles.avatarPickerTitle}>
-                {avatarPickerTarget === "student" ? "Choose Student Avatar" : "Choose EduTwin Avatar"}
+              <Text
+                style={[
+                  styles.avatarPickerTitle,
+                  { color: isDark ? "#F4F7FB" : "#1A202C" },
+                ]}
+              >
+                {avatarPickerTarget === "student"
+                  ? copy.chooseStudentAvatar
+                  : copy.chooseTwinAvatar}
               </Text>
               <TouchableOpacity
                 onPress={() => setAvatarPickerVisible(false)}
-                style={styles.avatarPickerClose}
+                style={[
+                  styles.avatarPickerClose,
+                  { backgroundColor: isDark ? "#121C2E" : "#EEF4FF" },
+                ]}
               >
-                <Ionicons name="close" size={18} color="#1A202C" />
+                <Ionicons
+                  name="close"
+                  size={18}
+                  color={isDark ? "#F4F7FB" : "#1A202C"}
+                />
               </TouchableOpacity>
             </View>
 
@@ -513,7 +1727,10 @@ export default function ProfileScreen() {
                   <TouchableOpacity
                     key={uri}
                     onPress={() => choosePresetAvatar(avatarPickerTarget, uri)}
-                    style={[styles.avatarGridItem, selected && styles.avatarGridItemSelected]}
+                    style={[
+                      styles.avatarGridItem,
+                      selected && styles.avatarGridItemSelected,
+                    ]}
                   >
                     <Image source={{ uri }} style={styles.avatarGridImage} />
                   </TouchableOpacity>
@@ -530,28 +1747,69 @@ export default function ProfileScreen() {
         transparent
         onRequestClose={cancelPendingPhoto}
       >
-        <Pressable style={styles.avatarPickerBackdrop} onPress={cancelPendingPhoto}>
-          <Pressable style={styles.avatarPickerCard} onPress={() => {}}>
-            <Text style={styles.avatarPickerTitle}>Use this photo?</Text>
+        <Pressable
+          style={styles.avatarPickerBackdrop}
+          onPress={cancelPendingPhoto}
+        >
+          <Pressable
+            style={[
+              styles.avatarPickerCard,
+              {
+                backgroundColor: isDark ? "#0E1A2C" : "#FFFFFF",
+                borderColor: isDark ? "#22324E" : "#E1E9F8",
+              },
+            ]}
+            onPress={() => {}}
+          >
+            <Text
+              style={[
+                styles.avatarPickerTitle,
+                { color: isDark ? "#F4F7FB" : "#1A202C" },
+              ]}
+            >
+              {copy.useThisPhoto}
+            </Text>
             {pendingPhotoUri ? (
-              <Image source={{ uri: pendingPhotoUri }} style={styles.pendingPreviewImage} />
+              <Image
+                source={{ uri: pendingPhotoUri }}
+                style={styles.pendingPreviewImage}
+              />
             ) : null}
             <View style={styles.pendingActionRow}>
               <TouchableOpacity
-                style={styles.pendingBackButton}
+                style={[
+                  styles.pendingBackButton,
+                  {
+                    borderColor: isDark ? "#2E4368" : "#D6E4FF",
+                    backgroundColor: isDark ? "#121C2E" : "#F4F8FF",
+                  },
+                ]}
                 onPress={cancelPendingPhoto}
                 activeOpacity={0.85}
               >
-                <Text style={styles.pendingBackText}>Back</Text>
+                <Text
+                  style={[
+                    styles.pendingBackText,
+                    { color: isDark ? "#BFD6FF" : "#35507E" },
+                  ]}
+                >
+                  {copy.cancel}
+                </Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={styles.pendingUseButton}
+                style={[
+                  styles.pendingUseButton,
+                  isApplyingPhoto && styles.pendingUseButtonDisabled,
+                ]}
                 onPress={() => {
                   void applyPendingPhoto();
                 }}
+                disabled={isApplyingPhoto}
                 activeOpacity={0.85}
               >
-                <Text style={styles.pendingUseText}>Use Photo</Text>
+                <Text style={styles.pendingUseText}>
+                  {isApplyingPhoto ? copy.applyingPhoto : copy.usePhoto}
+                </Text>
               </TouchableOpacity>
             </View>
           </Pressable>
@@ -595,13 +1853,269 @@ const styles = StyleSheet.create({
     backgroundColor: "transparent",
   },
   container: {
-    paddingHorizontal: 18,
-    gap: 14,
+    flexGrow: 1,
+    paddingHorizontal: 12,
+    gap: 10,
+  },
+  profileBadgeCard: {
+    alignSelf: "flex-start",
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderWidth: 1,
+    shadowColor: "#0E234E",
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 3,
+  },
+  profileBadgeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  profileBadgeText: {
+    fontSize: 18,
+    fontWeight: "800",
+  },
+  profileHeading: {
+    textAlign: "center",
+    fontSize: 22,
+    fontWeight: "800",
+    letterSpacing: 0.6,
+    marginBottom: 2,
+  },
+  identityCard: {
+    alignSelf: "stretch",
+    borderRadius: 20,
+    borderWidth: 1,
+    padding: 14,
+  },
+  identityRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  identityAvatarTap: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  identityAvatar: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  identityAvatarImage: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 35,
+  },
+  identityAvatarText: {
+    color: "#0B5FFF",
+    fontSize: 20,
+    fontWeight: "800",
+  },
+  identityTextWrap: {
+    flex: 1,
+  },
+  identityName: {
+    fontSize: 24,
+    fontWeight: "800",
+  },
+  identitySubline: {
+    marginTop: 3,
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  inlineEditButton: {
+    marginTop: 10,
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  inlineEditButtonText: {
+    color: "#0B5FFF",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  heroTopMeta: {
+    marginTop: 6,
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  groupCard: {
+    alignSelf: "stretch",
+    borderRadius: 20,
+    borderWidth: 1,
+    padding: 14,
+  },
+  groupTitle: {
+    fontSize: 17,
+    fontWeight: "700",
+    marginBottom: 8,
+  },
+  settingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(120,140,170,0.22)",
+  },
+  settingRowLast: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 10,
+  },
+  settingIconWrap: {
+    width: 30,
+    height: 30,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  settingTextWrap: {
+    flex: 1,
+    gap: 1,
+  },
+  settingTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  settingSubtitle: {
+    fontSize: 12,
+    fontWeight: "500",
+    lineHeight: 16,
+  },
+  subscriptionPill: {
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  subscriptionPillText: {
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  snapshotHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  snapshotMetricsRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 10,
+  },
+  snapshotMetricCard: {
+    flex: 1,
+    borderRadius: 16,
+    borderWidth: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    gap: 4,
+  },
+  snapshotMetricLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.2,
+    textTransform: "uppercase",
+  },
+  snapshotMetricValue: {
+    fontSize: 20,
+    fontWeight: "800",
+  },
+  snapshotHintPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginBottom: 2,
+  },
+  snapshotHintText: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: "700",
+    lineHeight: 16,
+  },
+  redeemButton: {
+    marginTop: 10,
+    borderRadius: 14,
+    backgroundColor: "#0B5FFF",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  redeemButtonText: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  redeemSuccessPill: {
+    marginTop: 10,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "rgba(11,95,255,0.08)",
+  },
+  redeemSuccessText: {
+    color: "#1F4E9D",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  snapshotRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 9,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(120,140,170,0.22)",
+  },
+  snapshotRowLast: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 12,
+    paddingTop: 9,
+    paddingBottom: 2,
+  },
+  snapshotLabel: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  snapshotValue: {
+    flex: 1,
+    textAlign: "right",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  hiddenLegacy: {
+    display: "none",
   },
   heroCard: {
+    alignSelf: "stretch",
     backgroundColor: "rgba(255, 255, 255, 0.84)",
     borderRadius: 28,
-    padding: 18,
+    padding: 16,
     borderWidth: 1,
     borderColor: "rgba(11, 95, 255, 0.12)",
     shadowColor: "#0E234E",
@@ -701,6 +2215,22 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: "#1A202C",
   },
+  editProfileButton: {
+    marginTop: 10,
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  editProfileButtonText: {
+    color: "#0B5FFF",
+    fontSize: 12,
+    fontWeight: "800",
+  },
   subtitle: {
     marginTop: 8,
     fontSize: 14,
@@ -726,21 +2256,24 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   sectionCard: {
+    alignSelf: "stretch",
     backgroundColor: "rgba(255, 255, 255, 0.84)",
     borderRadius: 22,
     borderWidth: 1,
     borderColor: "rgba(11, 95, 255, 0.12)",
-    padding: 14,
+    padding: 12,
     shadowColor: "#0E234E",
     shadowOpacity: 0.06,
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 4 },
     elevation: 1,
-    gap: 8,
+    gap: 6,
   },
   logoutButton: {
-    marginTop: 6,
-    marginBottom: 18,
+    alignSelf: "stretch",
+    width: "100%",
+    marginTop: 0,
+    marginBottom: 0,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -954,9 +2487,70 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingVertical: 11,
   },
+  pendingUseButtonDisabled: {
+    opacity: 0.7,
+  },
   pendingUseText: {
     color: "#FFFFFF",
     fontSize: 13,
     fontWeight: "700",
+  },
+  formGroup: {
+    gap: 6,
+  },
+  languageRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  languageChip: {
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#D6E4FF",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: "#F7FAFF",
+  },
+  languageChipActive: {
+    backgroundColor: "#0B5FFF",
+    borderColor: "#0B5FFF",
+  },
+  languageChipText: {
+    color: "#35507E",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  languageChipTextActive: {
+    color: "#FFFFFF",
+  },
+  imageActionButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#D6E4FF",
+    backgroundColor: "#ECF3FF",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  imageActionButtonText: {
+    color: "#0B5FFF",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  formLabel: {
+    color: "#5A6C87",
+    fontSize: 12,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.3,
+  },
+  formInput: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    fontWeight: "600",
   },
 });

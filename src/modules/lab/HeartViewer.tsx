@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, useColorScheme, View } from "react-native";
 import { WebView } from "react-native-webview";
 
 const HEART_MODEL_ID = "d9845afb1ee64ad094adc96320c67d98";
@@ -113,6 +113,7 @@ const buildHeartViewerHtml = (modelId: string) => `
 `;
 
 export default function HeartViewer() {
+  const isDark = useColorScheme() === "dark";
   const [selectedPart, setSelectedPart] = useState<number | null>(null);
   const [viewerError, setViewerError] = useState<string | null>(null);
 
@@ -122,7 +123,7 @@ export default function HeartViewer() {
     selectedPart !== null ? (HEART_PARTS[selectedPart] ?? FALLBACK_PART) : null;
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: isDark ? "#08111F" : "#FFFFFF" }]}>
       <WebView
         source={{ html, baseUrl: "https://localhost" }}
         originWhitelist={["*"]}
@@ -166,6 +167,10 @@ export default function HeartViewer() {
               }}
               style={({ pressed }) => [
                 styles.annotationDot,
+                {
+                  backgroundColor: isDark ? "#0E1A2C" : SURFACE_BG,
+                  borderColor: isDark ? "#2E4368" : SURFACE_BORDER,
+                },
                 active && styles.annotationDotActive,
                 pressed && styles.annotationDotPressed,
               ]}
@@ -188,29 +193,30 @@ export default function HeartViewer() {
 
       {viewerError ? (
         <View pointerEvents="none" style={styles.overlayArea}>
-          <View style={styles.glassCard}>
-            <Text style={styles.cardTitle}>Viewer Error</Text>
-            <Text style={styles.cardDescription}>{viewerError}</Text>
+          <View style={[styles.glassCard, { backgroundColor: isDark ? "#0E1A2C" : SURFACE_BG, borderColor: isDark ? "#22324E" : SURFACE_BORDER }]}> 
+            <Text style={[styles.cardTitle, { color: isDark ? "#F4F7FB" : "#1A202C" }]}>Viewer Error</Text>
+            <Text style={[styles.cardDescription, { color: isDark ? "#AAB7CF" : "#5A6C87" }]}>{viewerError}</Text>
           </View>
         </View>
       ) : null}
 
       {partInfo ? (
         <View style={styles.overlayArea}>
-          <View style={styles.glassCard}>
+          <View style={[styles.glassCard, { backgroundColor: isDark ? "#0E1A2C" : SURFACE_BG, borderColor: isDark ? "#22324E" : SURFACE_BORDER }]}> 
             <Pressable
               onPress={() => setSelectedPart(null)}
               style={({ pressed }) => [
                 styles.closeButton,
+                { backgroundColor: isDark ? "#121C2E" : "#F5F8FF", borderColor: isDark ? "#2E4368" : "#D6E4FF" },
                 pressed && styles.closeButtonPressed,
               ]}
               hitSlop={8}
             >
-              <Text style={styles.closeButtonText}>X</Text>
+              <Text style={[styles.closeButtonText, { color: isDark ? "#F4F7FB" : "#35507E" }]}>X</Text>
             </Pressable>
 
-            <Text style={styles.cardTitle}>{partInfo.title}</Text>
-            <Text style={styles.cardDescription}>{partInfo.description}</Text>
+            <Text style={[styles.cardTitle, { color: isDark ? "#F4F7FB" : "#1A202C" }]}>{partInfo.title}</Text>
+            <Text style={[styles.cardDescription, { color: isDark ? "#AAB7CF" : "#5A6C87" }]}>{partInfo.description}</Text>
           </View>
         </View>
       ) : null}

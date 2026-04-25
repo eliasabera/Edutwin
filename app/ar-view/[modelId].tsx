@@ -1,20 +1,56 @@
 import { COLORS } from "@/shared/constants/colors";
-import { getArTopicById } from "@/shared/services/ar-service";
+import { getArTopicById, getArTopics } from "@/shared/services/ar-service";
+import { useStudentProfile } from "@/shared/store/user-store";
 import ARWebView from "@/src/modules/lab/ARWebView";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import {
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import React, { useMemo } from "react";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 
 export default function ArViewScreen() {
   const { modelId } = useLocalSearchParams<{ modelId?: string }>();
   const router = useRouter();
   const topic = modelId ? getArTopicById(modelId) : null;
+  const studentProfile = useStudentProfile();
   const [cameraPermission, requestPermission] = useCameraPermissions();
+
+  const freeArIds = useMemo(() => {
+    const bySubject = new Map<string, string>();
+    const chapterOrder = (value: string): number => {
+      const match = String(value || "").match(/\d+/);
+      return match ? Number.parseInt(match[0], 10) : Number.POSITIVE_INFINITY;
+    };
+
+    const sorted = [...getArTopics()].sort((a, b) => {
+      const subjectOrder = String(a.subject).localeCompare(String(b.subject));
+      if (subjectOrder !== 0) {
+        return subjectOrder;
+      }
+
+      const chapterDiff = chapterOrder(a.chapter) - chapterOrder(b.chapter);
+      if (chapterDiff !== 0) {
+        return chapterDiff;
+      }
+
+      return String(a.topic).localeCompare(String(b.topic), undefined, {
+        numeric: true,
+        sensitivity: "base",
+      });
+    });
+
+    for (const item of sorted) {
+      const subject = String(item.subject || "").toLowerCase();
+      if (!bySubject.has(subject)) {
+        bySubject.set(subject, item.id);
+      }
+    }
+
+    return new Set(Array.from(bySubject.values()));
+  }, []);
+
+  const hasAccess =
+    topic &&
+    (studentProfile.isSubscribed === true || freeArIds.has(topic.id));
 
   if (!topic) {
     return (
@@ -23,6 +59,30 @@ export default function ArViewScreen() {
         <Text style={styles.subtitle}>
           The requested AR topic does not exist in the registry yet.
         </Text>
+      </View>
+    );
+  }
+
+  if (!hasAccess) {
+    return (
+      <View style={styles.permissionContainer}>
+        <Text style={styles.permissionTitle}>This AR model is locked</Text>
+        <Text style={styles.permissionSubtitle}>
+          Your account is not subscribed. You can use one free AR model per
+          subject, and this one requires subscription.
+        </Text>
+        <Pressable
+          style={styles.permissionButton}
+          onPress={() => {
+            if (router.canGoBack()) {
+              router.back();
+              return;
+            }
+            router.replace("/(tabs)/lab");
+          }}
+        >
+          <Text style={styles.permissionButtonText}>Back to Lab</Text>
+        </Pressable>
       </View>
     );
   }

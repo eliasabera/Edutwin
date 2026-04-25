@@ -3,21 +3,34 @@ import { useRouter } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Modal,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  useColorScheme,
   TouchableOpacity,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { WebView } from "react-native-webview";
 import { COLORS } from "../../../shared/constants/colors";
+import { useTranslation } from "../../../shared/i18n";
+import {
+  getEffectiveThemeMode,
+  useAppSettings,
+} from "../../../shared/store/settings-store";
+import { useStudentProfile } from "../../../shared/store/user-store";
 import {
   fetchAllCanvasLabResources,
   type LabCanvasResource,
 } from "../../../shared/services/ai-service";
+import {
+  redeemLabBonusUnlock,
+  mapBackendProfileToStudentProfile,
+} from "../../../shared/services/auth-service";
+import { updateStudentProfile } from "../../../shared/store/user-store";
 import { getArTopics } from "../../../shared/services/ar-service";
 
 type SubjectKey = "biology" | "chemistry" | "physics" | "math";
@@ -36,13 +49,6 @@ const HOME_PRIMARY = "#0B5FFF";
 const HOME_ACCENT = "#FF9600";
 
 const SUBJECT_ORDER: SubjectKey[] = ["biology", "chemistry", "physics", "math"];
-
-const SUBJECT_TITLE: Record<SubjectKey, string> = {
-  biology: "Biology",
-  chemistry: "Chemistry",
-  physics: "Physics",
-  math: "Math",
-};
 
 const SUBJECT_ICON: Record<SubjectKey, string> = {
   biology: "leaf-outline",
@@ -81,18 +87,72 @@ const compareTextAsc = (a: string, b: string): number =>
 export default function LabListingComponent() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const appSettings = useAppSettings();
+  const studentProfile = useStudentProfile();
+  const deviceTheme = useColorScheme();
+  const isDark =
+    appSettings.themeMode === "system"
+      ? (deviceTheme ?? getEffectiveThemeMode()) === "dark"
+      : appSettings.themeMode === "dark";
   const arTopics = getArTopics();
+  const { language } = useTranslation();
+  const isOm = language === "om";
+  const copy = {
+    badge: isOm ? "Labooraatorii Mataduree" : "Lab by Subject",
+    title: isOm ? "Labooraatorii Dijitaalaa" : "Virtual Lab",
+    subtitle: isOm
+      ? "Matadureen tokkoon tokkoon isaa Canvas fi AR adda adda qaba."
+      : "Each subject has separate Canvas simulations and AR models.",
+    subjects: isOm ? "matadureewwan" : "subjects",
+    canvasModels: isOm ? "Moodeloota Canvas" : "Canvas Models",
+    arModels: isOm ? "Moodeloota AR" : "AR Models",
+    loadingCanvas: isOm
+      ? "Moodeloota Canvas fe'aa jira..."
+      : "Loading canvas models...",
+    noCanvas: isOm ? "Moodeloonni Canvas hin jiran." : "No canvas models yet.",
+    noAr: isOm ? "Moodeloonni AR hin jiran." : "No AR models yet.",
+    openAr: isOm ? "AR banuu" : "Open AR",
+    canvasModel: isOm ? "Moodeela Canvas" : "Canvas Model",
+    filterTitle: isOm ? "Filannoo Labooraatorii" : "Lab Filters",
+    filterSubtitle: isOm
+      ? "Mataduree, haala, fi boqonnaa filadhu."
+      : "Pick subject, mode, and chapter.",
+    selectSubject: isOm ? "Mataduree" : "Subject",
+    selectChapter: isOm ? "Boqonnaa" : "Chapter",
+    noChapter: isOm ? "Boqonnaan hin jiru." : "No chapters available.",
+    filterHint: isOm
+      ? "Qabiyyeen mul'atuuf armaan gadiitti filannoo godhi."
+      : "Use the filters to display lab content.",
+    openingCanvas: isOm
+      ? "Moodeela canvas banaa jira..."
+      : "Opening canvas model...",
+    lockedFeature: isOm ? "Tajaajila cufame" : "Locked feature",
+    freeLabel: isOm ? "Bilisa" : "Free",
+    proLabel: isOm ? "Subscription" : "Subscription",
+    lockMessage: isOm
+      ? "Akkawuntiin kee hin subscribe ta'in jira. Mataduree hunda keessaa AR tokko fi Canvas tokko bilisa fayyadamuu dandeessa. Hafeef subscription barbaachisa."
+      : "Your account is not subscribed yet. You can use one free AR model and one free Canvas model per subject. The rest require subscription.",
+    freeNotice: isOm
+      ? "Akkawuntii hin subscribe taaneef: mataduree hunda keessaa Canvas 1 fi AR 1 bilisa. XP 2000 ol yoo qabaatte, 'Redeem' jedhu tuqi; XP ni zero'a, Canvas fi AR dabalataa ni bani. Subscribe gochuun immoo hundumaa ni banu."
+      : "For unsubscribed accounts: 1 free Canvas + 1 free AR in each subject. If XP is 2000 or more, tap Redeem to spend it, reset XP to zero, and unlock extra Canvas and AR access. Subscribe to unlock everything.",
+    redeemBonus: isOm ? "XP laattu banuu" : "Redeem XP bonus",
+    redeemingBonus: isOm ? "XP banuu irratti..." : "Redeeming XP...",
+  };
+  const subjectLabel = (subject: SubjectKey) => {
+    if (subject === "biology") return isOm ? "Baayoloojii" : "Biology";
+    if (subject === "chemistry") return isOm ? "Keemistirii" : "Chemistry";
+    if (subject === "physics") return isOm ? "Fiiziksii" : "Physics";
+    return isOm ? "Herrega" : "Math";
+  };
   const [canvasResources, setCanvasResources] = useState<LabItem[]>([]);
   const [isLoadingCanvas, setIsLoadingCanvas] = useState(true);
   const [activeCanvasUrl, setActiveCanvasUrl] = useState<string | null>(null);
-  const [selectedChapterBySubject, setSelectedChapterBySubject] = useState<
-    Record<SubjectKey, string>
-  >({
-    biology: "",
-    chemistry: "",
-    physics: "",
-    math: "",
-  });
+  const [isSubjectDropdownOpen, setIsSubjectDropdownOpen] = useState(false);
+  const [hasUsedFilters, setHasUsedFilters] = useState(false);
+  const [selectedSubject, setSelectedSubject] = useState<SubjectKey>("biology");
+  const [selectedMode, setSelectedMode] = useState<"canvas" | "ar">("canvas");
+  const [selectedChapter, setSelectedChapter] = useState<string>("");
+  const studentGradeNumber = Number.parseInt(String(studentProfile.grade || ""), 10);
 
   useEffect(() => {
     let isMounted = true;
@@ -103,7 +163,13 @@ export default function LabListingComponent() {
         const fetched = await fetchAllCanvasLabResources();
         if (!isMounted) return;
 
-        const mapped = fetched.map((item: LabCanvasResource) => {
+        const filteredByGrade = Number.isFinite(studentGradeNumber)
+          ? fetched.filter(
+              (item) => !item.gradeLevel || item.gradeLevel === studentGradeNumber,
+            )
+          : fetched;
+
+        const mapped = filteredByGrade.map((item: LabCanvasResource) => {
           const subjectKey = toSubjectKey(item.subject);
           return {
             id: item.id,
@@ -128,7 +194,7 @@ export default function LabListingComponent() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [studentGradeNumber]);
 
   const sections = useMemo(() => {
     return SUBJECT_ORDER.map((subject) => {
@@ -168,6 +234,101 @@ export default function LabListingComponent() {
     });
   }, [arTopics, canvasResources]);
 
+  const activeSection = useMemo(
+    () =>
+      sections.find((section) => section.subject === selectedSubject) ??
+      sections[0],
+    [sections, selectedSubject],
+  );
+
+  const availableChapters = activeSection?.chapters ?? [];
+  const effectiveChapter = availableChapters.includes(selectedChapter)
+    ? selectedChapter
+    : (availableChapters[0] ?? "");
+
+  useEffect(() => {
+    if (!availableChapters.length) {
+      if (selectedChapter !== "") {
+        setSelectedChapter("");
+      }
+      return;
+    }
+
+    if (!availableChapters.includes(selectedChapter)) {
+      setSelectedChapter(availableChapters[0]);
+    }
+  }, [availableChapters, selectedChapter]);
+
+  const filteredCanvas = effectiveChapter
+    ? (activeSection?.canvasItems ?? []).filter(
+        (item) => item.chapter === effectiveChapter,
+      )
+    : (activeSection?.canvasItems ?? []);
+
+  const filteredAr = effectiveChapter
+    ? (activeSection?.arItems ?? []).filter(
+        (item) => item.chapter === effectiveChapter,
+      )
+    : (activeSection?.arItems ?? []);
+
+  const isSubscribed = studentProfile.isSubscribed === true;
+  const hasRedeemedLabBonus = studentProfile.labBonusUnlock === true;
+  const hasBonusXpAccess = (studentProfile.xp ?? 0) >= 2000 && !hasRedeemedLabBonus;
+
+  const freeAccess = useMemo(() => {
+    const freeCanvasIds = new Set<string>();
+    const freeArIds = new Set<string>();
+
+    for (const section of sections) {
+      if (section.canvasItems[0]?.id) {
+        freeCanvasIds.add(section.canvasItems[0].id);
+      }
+      if (section.arItems[0]?.id) {
+        freeArIds.add(section.arItems[0].id);
+      }
+    }
+
+    const bonusCanvas = sections
+      .flatMap((section) => section.canvasItems)
+      .find((item) => !freeCanvasIds.has(item.id));
+    const bonusAr = sections
+      .flatMap((section) => section.arItems)
+      .find((item) => !freeArIds.has(item.id));
+
+    if (hasRedeemedLabBonus && bonusCanvas) {
+      freeCanvasIds.add(bonusCanvas.id);
+    }
+    if (hasRedeemedLabBonus && bonusAr) {
+      freeArIds.add(bonusAr.id);
+    }
+
+    return { freeCanvasIds, freeArIds };
+  }, [hasRedeemedLabBonus, sections]);
+
+  const isCanvasLocked = (itemId: string) =>
+    !isSubscribed && !freeAccess.freeCanvasIds.has(itemId);
+
+  const isArLocked = (itemId: string) =>
+    !isSubscribed && !freeAccess.freeArIds.has(itemId);
+
+  const overviewStats = [
+    {
+      label: copy.canvasModels,
+      value: String(canvasResources.length),
+      icon: "layers-outline" as const,
+    },
+    {
+      label: copy.arModels,
+      value: String(arTopics.length),
+      icon: "cube-outline" as const,
+    },
+    {
+      label: copy.subjects,
+      value: String(sections.length),
+      icon: "grid-outline" as const,
+    },
+  ];
+
   const openSimulation = (url: string) => {
     setActiveCanvasUrl(url);
   };
@@ -179,8 +340,28 @@ export default function LabListingComponent() {
     });
   };
 
+  const showLockedMessage = () => {
+    Alert.alert(copy.lockedFeature, copy.lockMessage, [{ text: "OK" }]);
+  };
+
+  const handleRedeemLabBonus = async () => {
+    try {
+      const backendProfile = await redeemLabBonusUnlock();
+      updateStudentProfile(mapBackendProfileToStudentProfile(backendProfile));
+      Alert.alert(copy.lockedFeature, copy.redeemBonus);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : copy.lockMessage;
+      Alert.alert(copy.lockedFeature, message);
+    }
+  };
+
   return (
-    <View style={styles.container}>
+    <View
+      style={[
+        styles.container,
+        { backgroundColor: isDark ? "#08111F" : "#FFFFFF" },
+      ]}
+    >
       <View pointerEvents="none" style={styles.bgGlowBlue} />
       <View pointerEvents="none" style={styles.bgGlowGold} />
       <View pointerEvents="none" style={styles.bgGlowSky} />
@@ -189,7 +370,7 @@ export default function LabListingComponent() {
         contentContainerStyle={[
           styles.content,
           {
-            paddingTop: insets.top + 16,
+            paddingTop: insets.top + 10,
             paddingBottom: 120 + Math.max(insets.bottom, 8),
           },
         ]}
@@ -197,195 +378,516 @@ export default function LabListingComponent() {
         overScrollMode="never"
         scrollEventThrottle={16}
       >
-        <View style={styles.heroCard}>
-          <View style={styles.heroBadge}>
-            <Ionicons name="flask-outline" size={14} color="#0B5FFF" />
-            <Text style={styles.heroBadgeText}>Lab by Subject</Text>
-          </View>
-
-          <Text style={styles.title}>Virtual Lab</Text>
-          <Text style={styles.subtitle}>
-            Each subject has separate Canvas simulations and AR models.
-          </Text>
-
-          <View style={styles.heroMetaPill}>
-            <Ionicons name="layers-outline" size={14} color="#0B5FFF" />
-            <Text style={styles.heroMetaText}>
-              {sections.length} subjects
+        <View
+          style={[
+            styles.labTopBadgeCard,
+            {
+              backgroundColor: isDark ? "#0E1A2C" : "rgba(255, 255, 255, 0.94)",
+              borderColor: isDark ? "#22324E" : "rgba(11, 95, 255, 0.16)",
+            },
+          ]}
+        >
+          <View style={styles.labTopBadgeRow}>
+            <Ionicons name="flask-outline" size={15} color="#0B5FFF" />
+            <Text
+              style={[
+                styles.labTopBadgeText,
+                { color: isDark ? "#F4F7FB" : "#1A202C" },
+              ]}
+            >
+              {copy.title}
             </Text>
           </View>
         </View>
 
-        {sections.map((section) => (
-          <View key={section.subject} style={styles.subjectCard}>
-            {(() => {
-              const selectedChapterCandidate =
-                selectedChapterBySubject[section.subject] ?? "";
-              const selectedChapter = section.chapters.includes(
-                selectedChapterCandidate,
-              )
-                ? selectedChapterCandidate
-                : (section.chapters[0] ?? "");
-              const filteredCanvas = selectedChapter
-                ? section.canvasItems.filter(
-                    (item) => item.chapter === selectedChapter,
-                  )
-                : section.canvasItems;
-              const filteredAr = selectedChapter
-                ? section.arItems.filter(
-                    (item) => item.chapter === selectedChapter,
-                  )
-                : section.arItems;
+        <View
+          style={[
+            styles.heroCard,
+            {
+              backgroundColor: isDark ? "#0E1A2C" : "rgba(255, 255, 255, 0.84)",
+              borderColor: isDark ? "#22324E" : "rgba(11, 95, 255, 0.12)",
+            },
+          ]}
+        >
+          <View
+            style={[
+              styles.heroBadge,
+              {
+                backgroundColor: isDark ? "#121C2E" : "#E7F0FF",
+                borderColor: isDark ? "#2E4368" : "#D4E3FA",
+              },
+            ]}
+          >
+            <Ionicons
+              name="flask-outline"
+              size={14}
+              color={isDark ? "#8FB7FF" : "#0B5FFF"}
+            />
+            <Text
+              style={[
+                styles.heroBadgeText,
+                { color: isDark ? "#D5E5FF" : "#0B5FFF" },
+              ]}
+            >
+              {copy.badge}
+            </Text>
+          </View>
 
-              return (
-                <>
-                  <View style={styles.subjectHeader}>
-                    <Text style={styles.subjectTitle}>
-                      {SUBJECT_TITLE[section.subject]}
+          <Text
+            style={[styles.title, { color: isDark ? "#F4F7FB" : "#1A202C" }]}
+          >
+            {copy.title}
+          </Text>
+          <Text
+            style={[styles.subtitle, { color: isDark ? "#AAB7CF" : "#5A6C87" }]}
+          >
+            {copy.subtitle}
+          </Text>
+
+          <View style={styles.overviewGrid}>
+            {overviewStats.map((item) => (
+              <View
+                key={item.label}
+                style={[
+                  styles.overviewStatCard,
+                  {
+                    backgroundColor: isDark ? "#121C2E" : "#F5F8FF",
+                    borderColor: isDark ? "#2E4368" : "#D6E4FF",
+                  },
+                ]}
+              >
+                <View style={styles.overviewStatTop}>
+                  <Ionicons name={item.icon} size={15} color="#0B5FFF" />
+                  <Text style={[styles.overviewStatValue, { color: isDark ? "#F4F7FB" : "#1A202C" }]}>{item.value}</Text>
+                </View>
+                <Text style={[styles.overviewStatLabel, { color: isDark ? "#AAB7CF" : "#5A6C87" }]}>{item.label}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+
+        <View
+          style={[
+            styles.subjectCard,
+            {
+              backgroundColor: isDark ? "#0E1A2C" : "rgba(255, 255, 255, 0.84)",
+              borderColor: isDark ? "#22324E" : "rgba(11, 95, 255, 0.12)",
+            },
+          ]}
+        >
+          <Pressable
+            style={[
+              styles.dropdownTrigger,
+              {
+                backgroundColor: isDark ? "#121C2E" : "#F5F8FF",
+                borderColor: isDark ? "#2E4368" : "#D6E4FF",
+              },
+            ]}
+            onPress={() => setIsSubjectDropdownOpen((current) => !current)}
+          >
+            <Text
+              style={[
+                styles.dropdownTriggerText,
+                { color: isDark ? "#BFD6FF" : "#35507E" },
+              ]}
+            >
+              {subjectLabel(selectedSubject)}
+            </Text>
+            <Ionicons
+              name={isSubjectDropdownOpen ? "chevron-up" : "chevron-down"}
+              size={16}
+              color={isDark ? "#BFD6FF" : "#35507E"}
+            />
+          </Pressable>
+
+          {isSubjectDropdownOpen ? (
+            <View
+              style={[
+                styles.dropdownMenu,
+                {
+                  backgroundColor: isDark ? "#121C2E" : "#FFFFFF",
+                  borderColor: isDark ? "#2E4368" : "#D6E4FF",
+                },
+              ]}
+            >
+              {SUBJECT_ORDER.map((subject) => {
+                const active = selectedSubject === subject;
+                return (
+                  <Pressable
+                    key={subject}
+                    style={[
+                      styles.dropdownItem,
+                      active && {
+                        backgroundColor: isDark
+                          ? "rgba(11,95,255,0.24)"
+                          : "#EAF2FF",
+                      },
+                    ]}
+                    onPress={() => {
+                      setHasUsedFilters(true);
+                      setSelectedSubject(subject);
+                      setIsSubjectDropdownOpen(false);
+                    }}
+                  >
+                    <Text
+                      style={[
+                        styles.dropdownItemText,
+                        { color: isDark ? "#D5E5FF" : "#1A202C" },
+                      ]}
+                    >
+                      {subjectLabel(subject)}
                     </Text>
-                    <View style={styles.subjectBadge}>
-                      <Text style={styles.subjectBadgeText}>
-                        {filteredCanvas.length} Canvas • {filteredAr.length} AR
+                    {active ? (
+                      <Ionicons name="checkmark" size={16} color="#0B5FFF" />
+                    ) : null}
+                  </Pressable>
+                );
+              })}
+            </View>
+          ) : null}
+
+          <View style={styles.modeToggleRow}>
+            {([
+              { key: "canvas" as const, label: copy.canvasModels, icon: "layers-outline" as const },
+              { key: "ar" as const, label: copy.arModels, icon: "cube-outline" as const },
+            ]).map((mode) => {
+              const active = selectedMode === mode.key;
+              return (
+                <TouchableOpacity
+                  key={mode.key}
+                  style={[
+                    styles.modeToggleChip,
+                    {
+                      backgroundColor: isDark ? "#121C2E" : "#F5F8FF",
+                      borderColor: isDark ? "#2E4368" : "#D6E4FF",
+                    },
+                    active && styles.modeToggleChipActive,
+                  ]}
+                  onPress={() => setSelectedMode(mode.key)}
+                  onPressIn={() => setHasUsedFilters(true)}
+                  activeOpacity={0.9}
+                >
+                  <Ionicons
+                    name={mode.icon}
+                    size={14}
+                    color={active ? "#FFFFFF" : "#0B5FFF"}
+                  />
+                  <Text
+                    style={[
+                      styles.modeToggleText,
+                      { color: isDark ? "#BFD6FF" : "#35507E" },
+                      active && styles.modeToggleTextActive,
+                    ]}
+                  >
+                    {mode.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          {!isSubscribed ? (
+            <View
+              style={[
+                styles.freeNoticeCard,
+                {
+                  backgroundColor: isDark ? "#121C2E" : "#F5F8FF",
+                  borderColor: isDark ? "#2E4368" : "#D6E4FF",
+                },
+              ]}
+            >
+              <Ionicons name="lock-closed-outline" size={14} color="#0B5FFF" />
+              <Text
+                style={[
+                  styles.freeNoticeText,
+                  { color: isDark ? "#BFD6FF" : "#35507E" },
+                ]}
+              >
+                {copy.freeNotice}
+              </Text>
+            </View>
+          ) : null}
+
+          {hasBonusXpAccess ? (
+            <TouchableOpacity
+              style={styles.redeemButton}
+              onPress={() => void handleRedeemLabBonus()}
+              activeOpacity={0.9}
+            >
+              <Ionicons name="sparkles-outline" size={14} color="#FFFFFF" />
+              <Text style={styles.redeemButtonText}>{copy.redeemBonus}</Text>
+            </TouchableOpacity>
+          ) : null}
+
+          {availableChapters.length === 0 ? (
+            <Text
+              style={[
+                styles.emptyText,
+                { color: isDark ? "#AAB7CF" : "#5A6C87" },
+              ]}
+            >
+              {copy.noChapter}
+            </Text>
+          ) : (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              nestedScrollEnabled
+              contentContainerStyle={styles.chapterFilterRow}
+            >
+              {availableChapters.map((chapter) => {
+                const active = effectiveChapter === chapter;
+                return (
+                  <TouchableOpacity
+                    key={chapter}
+                    style={[
+                      styles.chapterChip,
+                      {
+                        backgroundColor: isDark ? "#121C2E" : "#F5F8FF",
+                        borderColor: isDark ? "#2E4368" : "#D6E4FF",
+                      },
+                      active && styles.chapterChipActive,
+                    ]}
+                    onPress={() => setSelectedChapter(chapter)}
+                    onPressIn={() => setHasUsedFilters(true)}
+                    activeOpacity={0.9}
+                  >
+                    <Text
+                      style={[
+                        styles.chapterChipText,
+                        { color: isDark ? "#BFD6FF" : "#35507E" },
+                        active && styles.chapterChipTextActive,
+                      ]}
+                    >
+                      {chapter}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          )}
+
+          {selectedMode === "canvas" ? (
+            filteredCanvas.length === 0 ? (
+              <Text
+                style={[
+                  styles.emptyText,
+                  { color: isDark ? "#AAB7CF" : "#5A6C87" },
+                ]}
+              >
+                {isLoadingCanvas ? copy.loadingCanvas : copy.noCanvas}
+              </Text>
+            ) : (
+              <View style={styles.modelBlock}>
+                {filteredCanvas.map((item) => (
+                  (() => {
+                    const locked = isCanvasLocked(item.id);
+                    const freeItem = !locked && !isSubscribed;
+                    return (
+                  <TouchableOpacity
+                    key={item.id}
+                    style={[
+                      styles.canvasCard,
+                      locked && styles.lockedCard,
+                      {
+                        backgroundColor: isDark
+                          ? "rgba(14,26,44,0.9)"
+                          : "rgba(255,255,255,0.84)",
+                        borderColor: isDark
+                          ? "#22324E"
+                          : "rgba(11, 95, 255, 0.12)",
+                      },
+                    ]}
+                    onPress={() => (locked ? showLockedMessage() : openSimulation(item.url))}
+                    activeOpacity={0.9}
+                  >
+                    <View
+                      style={[
+                        styles.iconBox,
+                        styles.iconBoxBlue,
+                        {
+                          backgroundColor: isDark ? "#121C2E" : "#E7F0FF",
+                          borderColor: isDark ? "#2E4368" : "#C8DCF9",
+                        },
+                      ]}
+                    >
+                      <Ionicons
+                        name={item.icon as any}
+                        size={28}
+                        color={HOME_PRIMARY}
+                      />
+                    </View>
+
+                    <View style={styles.info}>
+                      <View style={styles.topRow}>
+                        <Text style={styles.category}>CANVAS</Text>
+                        {locked ? (
+                          <View style={styles.lockBadge}>
+                            <Ionicons name="lock-closed" size={12} color="#FFFFFF" />
+                            <Text style={styles.lockBadgeText}>{copy.proLabel}</Text>
+                          </View>
+                        ) : freeItem ? (
+                          <View style={[styles.lockBadge, styles.freeBadge]}>
+                            <Ionicons name="gift-outline" size={12} color="#FFFFFF" />
+                            <Text style={styles.lockBadgeText}>{copy.freeLabel}</Text>
+                          </View>
+                        ) : (
+                          <Ionicons
+                            name="chevron-forward"
+                            size={20}
+                            color={isDark ? "#8FA1BF" : COLORS.textLight}
+                          />
+                        )}
+                      </View>
+                      <Text
+                        style={[
+                          styles.labTitle,
+                          { color: isDark ? "#F4F7FB" : "#1A202C" },
+                        ]}
+                      >
+                        {item.title}
+                      </Text>
+                      <Text
+                        style={[
+                          styles.chapterText,
+                          { color: isDark ? "#BFD6FF" : "#35507E" },
+                        ]}
+                      >
+                        {item.chapter}
+                      </Text>
+                      <Text
+                        style={[
+                          styles.desc,
+                          { color: isDark ? "#AAB7CF" : "#5A6C87" },
+                        ]}
+                      >
+                        {item.desc}
                       </Text>
                     </View>
+                  </TouchableOpacity>
+                    );
+                  })()
+                ))}
+              </View>
+            )
+          ) : filteredAr.length === 0 ? (
+            <Text
+              style={[
+                styles.emptyText,
+                { color: isDark ? "#AAB7CF" : "#5A6C87" },
+              ]}
+            >
+              {copy.noAr}
+            </Text>
+          ) : (
+            <View style={styles.arStack}>
+              {filteredAr.map((topic) => (
+                (() => {
+                  const locked = isArLocked(topic.id);
+                  const freeItem = !locked && !isSubscribed;
+                  return (
+                <TouchableOpacity
+                  key={topic.id}
+                  style={[
+                    styles.arCardWide,
+                    locked && styles.lockedCard,
+                    {
+                      backgroundColor: isDark
+                        ? "rgba(14,26,44,0.9)"
+                        : "rgba(255,255,255,0.86)",
+                      borderColor: isDark ? "#22324E" : "#DCE7FA",
+                    },
+                  ]}
+                  onPress={() => (locked ? showLockedMessage() : openArModel(topic.id))}
+                  activeOpacity={0.9}
+                >
+                  <View style={styles.arCardWideTop}>
+                    <View
+                      style={[
+                        styles.arIconWrap,
+                        {
+                          backgroundColor: isDark ? "#121C2E" : "#E7F0FF",
+                        },
+                      ]}
+                    >
+                      <Ionicons name="cube-outline" size={20} color="#0B5FFF" />
+                    </View>
+                    {locked ? (
+                      <View style={styles.lockBadge}>
+                        <Ionicons name="lock-closed" size={12} color="#FFFFFF" />
+                        <Text style={styles.lockBadgeText}>{copy.proLabel}</Text>
+                      </View>
+                    ) : freeItem ? (
+                      <View style={[styles.lockBadge, styles.freeBadge]}>
+                        <Ionicons name="gift-outline" size={12} color="#FFFFFF" />
+                        <Text style={styles.lockBadgeText}>{copy.freeLabel}</Text>
+                      </View>
+                    ) : (
+                      <Ionicons
+                        name="chevron-forward"
+                        size={18}
+                        color={isDark ? "#8FA1BF" : COLORS.textLight}
+                      />
+                    )}
                   </View>
-
-                  <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    nestedScrollEnabled
-                    contentContainerStyle={styles.chapterFilterRow}
+                  <Text
+                    style={[
+                      styles.arTitleWide,
+                      { color: isDark ? "#F4F7FB" : "#1A202C" },
+                    ]}
+                    numberOfLines={1}
                   >
-                    {section.chapters.map((chapter) => {
-                      const active = selectedChapter === chapter;
-                      return (
-                        <TouchableOpacity
-                          key={chapter}
-                          style={[
-                            styles.chapterChip,
-                            active && styles.chapterChipActive,
-                          ]}
-                          onPress={() =>
-                            setSelectedChapterBySubject((current) => ({
-                              ...current,
-                              [section.subject]: chapter,
-                            }))
-                          }
-                          activeOpacity={0.9}
-                        >
-                          <Text
-                            style={[
-                              styles.chapterChipText,
-                              active && styles.chapterChipTextActive,
-                            ]}
-                          >
-                            {chapter}
-                          </Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </ScrollView>
-
-                  <View style={styles.modelBlock}>
-                    <Text style={styles.modelBlockTitle}>Canvas Models</Text>
-                    {filteredCanvas.length === 0 ? (
-                      <Text style={styles.emptyText}>
-                        {isLoadingCanvas ? "Loading canvas models..." : "No canvas models yet."}
-                      </Text>
-                    ) : (
-                      filteredCanvas.map((item) => (
-                        <TouchableOpacity
-                          key={item.id}
-                          style={styles.canvasCard}
-                          onPress={() => openSimulation(item.url)}
-                          activeOpacity={0.9}
-                        >
-                          <View
-                            style={[
-                              styles.iconBox,
-                              styles.iconBoxBlue,
-                            ]}
-                          >
-                            <Ionicons
-                              name={item.icon as any}
-                              size={28}
-                              color={HOME_PRIMARY}
-                            />
-                          </View>
-
-                          <View style={styles.info}>
-                            <View style={styles.topRow}>
-                              <Text style={styles.category}>
-                                CANVAS
-                              </Text>
-                              <Ionicons
-                                name="chevron-forward"
-                                size={20}
-                                color={COLORS.textLight}
-                              />
-                            </View>
-                            <Text style={styles.labTitle}>{item.title}</Text>
-                            <Text style={styles.chapterText}>
-                              {item.chapter}
-                            </Text>
-                            <Text style={styles.desc}>{item.desc}</Text>
-                          </View>
-                        </TouchableOpacity>
-                      ))
-                    )}
+                    {topic.topic}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.arMeta,
+                      {
+                        color: isDark ? "#AAB7CF" : COLORS.textLight,
+                      },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {topic.chapter}
+                  </Text>
+                  <View style={styles.arButtonMini}>
+                    <Text style={styles.arButtonMiniText}>
+                      {locked ? copy.lockedFeature : copy.openAr}
+                    </Text>
+                    <Ionicons
+                      name={locked ? "lock-closed" : "arrow-forward"}
+                      size={12}
+                      color="white"
+                    />
                   </View>
+                </TouchableOpacity>
+                  );
+                })()
+              ))}
+            </View>
+          )}
+        </View>
 
-                  <View style={styles.modelBlock}>
-                    <Text style={styles.modelBlockTitle}>AR Models</Text>
-                    {filteredAr.length === 0 ? (
-                      <Text style={styles.emptyText}>No AR models yet.</Text>
-                    ) : (
-                      <ScrollView
-                        horizontal
-                        showsHorizontalScrollIndicator={false}
-                        nestedScrollEnabled
-                        contentContainerStyle={styles.arRow}
-                      >
-                        {filteredAr.map((topic) => (
-                          <TouchableOpacity
-                            key={topic.id}
-                            style={styles.arCard}
-                            onPress={() => openArModel(topic.id)}
-                            activeOpacity={0.9}
-                          >
-                            <View style={styles.arIconWrap}>
-                              <Ionicons
-                                name="cube-outline"
-                                size={20}
-                                color="#0B5FFF"
-                              />
-                            </View>
-                            <Text style={styles.arTitle} numberOfLines={1}>
-                              {topic.topic}
-                            </Text>
-                            <Text style={styles.arMeta} numberOfLines={1}>
-                              {topic.chapter}
-                            </Text>
-                            <View style={styles.arButtonMini}>
-                              <Text style={styles.arButtonMiniText}>
-                                Open AR
-                              </Text>
-                              <Ionicons
-                                name="arrow-forward"
-                                size={12}
-                                color="white"
-                              />
-                            </View>
-                          </TouchableOpacity>
-                        ))}
-                      </ScrollView>
-                    )}
-                  </View>
-                </>
-              );
-            })()}
+        {!hasUsedFilters ? (
+          <View
+            style={[
+              styles.tempPlaceholder,
+              {
+                backgroundColor: isDark ? "#121C2E" : "#F5F8FF",
+                borderColor: isDark ? "#2E4368" : "#D6E4FF",
+              },
+            ]}
+          >
+            <Text
+              style={[
+                styles.tempPlaceholderText,
+                { color: isDark ? "#BFD6FF" : "#35507E" },
+              ]}
+            >
+              {copy.filterHint}
+            </Text>
           </View>
-        ))}
+        ) : null}
       </ScrollView>
 
       <Modal
@@ -395,14 +897,37 @@ export default function LabListingComponent() {
         onRequestClose={() => setActiveCanvasUrl(null)}
       >
         <View style={styles.modalBackdrop}>
-          <View style={[styles.modalCard, { paddingTop: insets.top + 8 }]}>
+          <View
+            style={[
+              styles.modalCard,
+              {
+                paddingTop: insets.top + 8,
+                backgroundColor: isDark ? "#0E1A2C" : "#FFFFFF",
+                borderColor: isDark ? "#22324E" : "#E3ECF8",
+              },
+            ]}
+          >
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Canvas Model</Text>
+              <Text
+                style={[
+                  styles.modalTitle,
+                  { color: isDark ? "#F4F7FB" : "#102443" },
+                ]}
+              >
+                {copy.canvasModel}
+              </Text>
               <Pressable
                 onPress={() => setActiveCanvasUrl(null)}
-                style={styles.modalCloseButton}
+                style={[
+                  styles.modalCloseButton,
+                  { backgroundColor: isDark ? "#121C2E" : "#EEF4FD" },
+                ]}
               >
-                <Ionicons name="close" size={20} color="#1A202C" />
+                <Ionicons
+                  name="close"
+                  size={20}
+                  color={isDark ? "#F4F7FB" : "#1A202C"}
+                />
               </Pressable>
             </View>
             {activeCanvasUrl ? (
@@ -412,9 +937,21 @@ export default function LabListingComponent() {
                 originWhitelist={["*"]}
                 startInLoadingState
                 renderLoading={() => (
-                  <View style={styles.loaderWrap}>
+                  <View
+                    style={[
+                      styles.loaderWrap,
+                      { backgroundColor: isDark ? "#0E1A2C" : "#FFFFFF" },
+                    ]}
+                  >
                     <ActivityIndicator size="small" color="#0B5FFF" />
-                    <Text style={styles.loaderText}>Opening canvas model...</Text>
+                    <Text
+                      style={[
+                        styles.loaderText,
+                        { color: isDark ? "#AAB7CF" : "#35507E" },
+                      ]}
+                    >
+                      {copy.openingCanvas}
+                    </Text>
                   </View>
                 )}
               />
@@ -460,8 +997,49 @@ const styles = StyleSheet.create({
     backgroundColor: "transparent",
   },
   content: {
+    flexGrow: 1,
     paddingHorizontal: 18,
     gap: 14,
+  },
+  labTopBadgeCard: {
+    alignSelf: "flex-start",
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderWidth: 1,
+    shadowColor: "#0E234E",
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 3,
+  },
+  labTopBadgeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  labTopBadgeText: {
+    fontSize: 18,
+    fontWeight: "800",
+  },
+  tempPlaceholder: {
+    marginTop: "auto",
+    minHeight: 140,
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  tempPlaceholderText: {
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  heroRowWrap: {
+    gap: 12,
   },
   heroCard: {
     backgroundColor: "rgba(255, 255, 255, 0.84)",
@@ -520,18 +1098,84 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "700",
   },
-  subjectCard: {
-    backgroundColor: "rgba(255, 255, 255, 0.84)",
-    borderRadius: 22,
+  heroFeatureCard: {
+    borderRadius: 24,
     borderWidth: 1,
-    borderColor: "rgba(11, 95, 255, 0.12)",
     padding: 14,
     shadowColor: "#0E234E",
-    shadowOpacity: 0.06,
+    shadowOpacity: 0.07,
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 4 },
-    elevation: 1,
+    elevation: 2,
     gap: 12,
+  },
+  heroFeatureTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  heroFeatureKicker: {
+    fontSize: 12,
+    fontWeight: "800",
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+  },
+  heroFeatureTitle: {
+    fontSize: 20,
+    fontWeight: "800",
+    lineHeight: 24,
+    marginTop: 2,
+    maxWidth: "88%",
+  },
+  heroFeatureOrb: {
+    width: 40,
+    height: 40,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  heroFeatureText: {
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: "600",
+  },
+  overviewGrid: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  overviewStatCard: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 18,
+    padding: 10,
+    gap: 6,
+  },
+  overviewStatTop: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  overviewStatValue: {
+    fontSize: 18,
+    fontWeight: "800",
+  },
+  overviewStatLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  subjectCard: {
+    backgroundColor: "rgba(255, 255, 255, 0.9)",
+    borderRadius: 26,
+    borderWidth: 1,
+    borderColor: "rgba(11, 95, 255, 0.12)",
+    padding: 16,
+    shadowColor: "#0E234E",
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 2,
+    gap: 14,
   },
   subjectHeader: {
     flexDirection: "row",
@@ -539,10 +1183,18 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 10,
   },
+  subjectHeaderTextWrap: {
+    flex: 1,
+    gap: 2,
+  },
   subjectTitle: {
     color: "#1A202C",
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: "800",
+  },
+  subjectSubtitle: {
+    fontSize: 12,
+    fontWeight: "600",
   },
   subjectBadge: {
     paddingHorizontal: 10,
@@ -557,8 +1209,43 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "700",
   },
+  dropdownTrigger: {
+    minHeight: 44,
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  dropdownTriggerText: {
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  dropdownMenu: {
+    borderRadius: 14,
+    borderWidth: 1,
+    overflow: "hidden",
+    marginTop: -4,
+  },
+  dropdownItem: {
+    minHeight: 42,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  dropdownItemText: {
+    fontSize: 13,
+    fontWeight: "600",
+  },
   modelBlock: {
     gap: 10,
+  },
+  filterLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    marginBottom: -2,
   },
   chapterFilterRow: {
     gap: 8,
@@ -583,12 +1270,46 @@ const styles = StyleSheet.create({
   chapterChipTextActive: {
     color: "#FFFFFF",
   },
-  modelBlockTitle: {
+  modeToggleRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  modeToggleChip: {
+    flex: 1,
+    minHeight: 42,
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  modeToggleChipActive: {
+    backgroundColor: "#0B5FFF",
+    borderColor: "#0B5FFF",
+  },
+  modeToggleText: {
     fontSize: 12,
     fontWeight: "800",
-    color: "#3C5379",
-    textTransform: "uppercase",
-    letterSpacing: 0.4,
+  },
+  modeToggleTextActive: {
+    color: "#FFFFFF",
+  },
+  freeNoticeCard: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    flexDirection: "row",
+    gap: 8,
+    alignItems: "center",
+  },
+  freeNoticeText: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: "700",
+    lineHeight: 17,
   },
   emptyText: {
     fontSize: 13,
@@ -609,6 +1330,9 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     elevation: 1,
   },
+  lockedCard: {
+    opacity: 0.86,
+  },
   iconBox: {
     width: 58,
     height: 58,
@@ -628,7 +1352,25 @@ const styles = StyleSheet.create({
   topRow: {
     flexDirection: "row",
     justifyContent: "space-between",
+    alignItems: "center",
     marginBottom: 4,
+  },
+  lockBadge: {
+    borderRadius: 999,
+    backgroundColor: "#35507E",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  freeBadge: {
+    backgroundColor: "#0B5FFF",
+  },
+  lockBadgeText: {
+    color: "#FFFFFF",
+    fontSize: 10,
+    fontWeight: "800",
   },
   category: {
     fontSize: 11,
@@ -656,18 +1398,25 @@ const styles = StyleSheet.create({
   arRow: {
     gap: 10,
   },
-  arCard: {
-    width: 170,
+  arStack: {
+    gap: 10,
+  },
+  arCardWide: {
     backgroundColor: "rgba(255,255,255,0.86)",
     borderRadius: 20,
     borderWidth: 1,
     borderColor: "#DCE7FA",
-    padding: 12,
+    padding: 14,
     shadowColor: "#0E234E",
     shadowOpacity: 0.05,
     shadowRadius: 7,
     shadowOffset: { width: 0, height: 4 },
     elevation: 1,
+  },
+  arCardWideTop: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
   },
   arIconWrap: {
     width: 36,
@@ -680,6 +1429,12 @@ const styles = StyleSheet.create({
   arTitle: {
     marginTop: 10,
     fontSize: 15,
+    fontWeight: "800",
+    color: "#1A202C",
+  },
+  arTitleWide: {
+    marginTop: 12,
+    fontSize: 16,
     fontWeight: "800",
     color: "#1A202C",
   },
@@ -714,6 +1469,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 18,
     backgroundColor: "#FFFFFF",
     overflow: "hidden",
+    borderWidth: 1,
   },
   modalHeader: {
     height: 52,
