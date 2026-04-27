@@ -18,10 +18,7 @@ import {
   loginUser,
   mapBackendProfileToStudentProfile,
 } from "../../../shared/services/auth-service";
-import {
-  getStudentProfile,
-  updateStudentProfile,
-} from "../../../shared/store/user-store";
+import { updateStudentProfile } from "../../../shared/store/user-store";
 import { setPreferredLanguage } from "../../../shared/store/language-store";
 import { setHasAcceptedTermsPolicy } from "../../../shared/store/settings-store";
 
@@ -87,18 +84,7 @@ export default function LoginComponent() {
       const backendProfile = await fetchStudentProfile();
       const mappedProfile = mapBackendProfileToStudentProfile(backendProfile);
       setHasAcceptedTermsPolicy(backendProfile.has_accepted_terms_policy === true);
-      const currentProfile = getStudentProfile();
-      updateStudentProfile({
-        ...mappedProfile,
-        supportSubjects:
-          mappedProfile.supportSubjects.length > 0
-            ? mappedProfile.supportSubjects
-            : currentProfile.supportSubjects,
-        strongSubjects:
-          mappedProfile.strongSubjects.length > 0
-            ? mappedProfile.strongSubjects
-            : currentProfile.strongSubjects,
-      });
+      updateStudentProfile(mappedProfile);
       await setPreferredLanguage(mappedProfile.preferredLanguage || "en");
       router.replace("/(tabs)/home" as never);
     } catch (error) {

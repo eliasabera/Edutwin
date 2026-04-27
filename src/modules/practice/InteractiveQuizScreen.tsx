@@ -56,6 +56,12 @@ const normalizeBooleanAnswer = (value: string) => {
   return normalized;
 };
 
+const stripOptionPrefix = (value: string) =>
+  String(value || "")
+    .replace(/^\s*\(?[a-zA-Z]\)?[\].:\-]\s*/i, "")
+    .replace(/^\s*(option|choice)\s+[a-zA-Z]\s*[:.\-]?\s*/i, "")
+    .trim();
+
 const getOptionLetter = (index: number) => String.fromCharCode(65 + index);
 
 const extractOptionIndexFromAnswer = (
@@ -63,9 +69,18 @@ const extractOptionIndexFromAnswer = (
   options: string[] = [],
 ) => {
   const normalizedAnswer = normalizeText(answer);
-  const byTextIndex = options.findIndex(
-    (option) => normalizeText(option) === normalizedAnswer,
-  );
+  const normalizedStrippedAnswer = normalizeText(stripOptionPrefix(answer));
+  const byTextIndex = options.findIndex((option) => {
+    const normalizedOption = normalizeText(option);
+    const normalizedStrippedOption = normalizeText(stripOptionPrefix(option));
+
+    return (
+      normalizedOption === normalizedAnswer ||
+      normalizedOption === normalizedStrippedAnswer ||
+      normalizedStrippedOption === normalizedAnswer ||
+      normalizedStrippedOption === normalizedStrippedAnswer
+    );
+  });
   if (byTextIndex >= 0) {
     return byTextIndex;
   }
@@ -94,6 +109,38 @@ const extractOptionIndexFromAnswer = (
     if (idx >= 0 && idx < options.length) {
       return idx;
     }
+  }
+
+  const optionNumberWord = normalizeText(answer).match(
+    /\b(option|choice)\s+(\d+)\b/,
+  );
+  if (optionNumberWord) {
+    const idx = Number(optionNumberWord[2]) - 1;
+    if (idx >= 0 && idx < options.length) {
+      return idx;
+    }
+  }
+
+  const directNumber = String(answer || "").match(/^\s*(\d+)\s*$/);
+  if (directNumber) {
+    const idx = Number(directNumber[1]) - 1;
+    if (idx >= 0 && idx < options.length) {
+      return idx;
+    }
+  }
+
+  const containsTextIndex = options.findIndex((option) => {
+    const normalizedOption = normalizeText(stripOptionPrefix(option));
+    if (!normalizedOption || normalizedOption.length < 3) {
+      return false;
+    }
+    return (
+      normalizedStrippedAnswer.includes(normalizedOption) ||
+      normalizedOption.includes(normalizedStrippedAnswer)
+    );
+  });
+  if (containsTextIndex >= 0) {
+    return containsTextIndex;
   }
 
   return -1;

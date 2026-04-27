@@ -17,10 +17,10 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { TWIN_CARTOON_AVATARS } from "../../../shared/constants/avatar-presets";
 import {
-  TWIN_CARTOON_AVATARS,
-} from "../../../shared/constants/avatar-presets";
-import {
+  fetchPublicSchools,
+  type PublicSchoolOption,
   registerStudent,
   saveStudentProfile,
   uploadStudentPhoto,
@@ -82,6 +82,10 @@ const COPY: Record<
     signUp: string;
     showPassword: string;
     hidePassword: string;
+    termsLabel: string;
+    termsRequired: string;
+    loadingSchools: string;
+    noSchoolsAvailable: string;
   }
 > = {
   en: {
@@ -123,6 +127,10 @@ const COPY: Record<
     signUp: "Sign Up",
     showPassword: "Show password",
     hidePassword: "Hide password",
+    termsLabel: "I agree to the Terms & Policy",
+    termsRequired: "Please accept Terms & Policy to continue.",
+    loadingSchools: "Loading schools...",
+    noSchoolsAvailable: "No schools available right now.",
   },
   om: {
     title: "Akaawuntii Uumi",
@@ -136,7 +144,8 @@ const COPY: Record<
     selectSection: "Kutaa Fili",
     withSchool: "Mana barumsaa qaba",
     withoutSchool: "Mana barumsaa hin qabu",
-    schoolInfoHint: "Yoo mana barumsaa keessatti barachaa jirta ta'e kana fili.",
+    schoolInfoHint:
+      "Yoo mana barumsaa keessatti barachaa jirta ta'e kana fili.",
     noSchoolInfoHint: "Yoo ofiin barataa jirta ta'e kana fili.",
     sectionLabel: (section: string) => `Kutaa ${section}`,
     gradeLabel: (grade: string) => `Kutaa ${grade}`,
@@ -163,6 +172,10 @@ const COPY: Record<
     signUp: "Galmaa'i",
     showPassword: "Jecha darbii agarsiisi",
     hidePassword: "Jecha darbii dhoksi",
+    termsLabel: "Seeraa fi Imaammata irratti walii galeera",
+    termsRequired: "Maaloo itti fufuuf Seeraa fi Imaammata fudhadhu.",
+    loadingSchools: "Manneen barumsaa fe'amaa jiru...",
+    noSchoolsAvailable: "Yeroo ammaa kana manni barumsaa hin argamne.",
   },
 };
 
@@ -177,13 +190,10 @@ export default function RegisterComponent() {
     /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 
   const gradeOptions = ["9", "10", "11", "12"];
-  const schoolOptions = [
-    { value: "", label: copy.selectSchool },
-    { value: "SCH-001", label: "Addis Ababa Secondary School" },
-    { value: "SCH-002", label: "Bole Preparatory School" },
-    { value: "SCH-003", label: "Kokebe Tsibah School" },
-    { value: "SCH-004", label: "Unity High School" },
-  ];
+  const [schoolOptions, setSchoolOptions] = useState<
+    { value: string; label: string }[]
+  >([{ value: "", label: copy.selectSchool }]);
+  const [schoolsLoading, setSchoolsLoading] = useState(true);
   const sectionOptions = [
     { value: "", label: copy.selectSection },
     { value: "A", label: copy.sectionLabel("A") },
@@ -206,6 +216,7 @@ export default function RegisterComponent() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [studentPhotoUri, setStudentPhotoUri] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
@@ -220,8 +231,10 @@ export default function RegisterComponent() {
       setKeyboardHeight(0);
     };
 
-    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
-    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const showEvent =
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent =
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
 
     const showSubscription = Keyboard.addListener(showEvent, onKeyboardShow);
     const hideSubscription = Keyboard.addListener(hideEvent, onKeyboardHide);
@@ -231,6 +244,36 @@ export default function RegisterComponent() {
       hideSubscription.remove();
     };
   }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    const loadSchools = async () => {
+      try {
+        setSchoolsLoading(true);
+        const schools: PublicSchoolOption[] = await fetchPublicSchools();
+        if (!active) return;
+
+        const mapped = schools.map((school) => ({
+          value: school._id,
+          label: school.name,
+        }));
+
+        setSchoolOptions([{ value: "", label: copy.selectSchool }, ...mapped]);
+      } catch {
+        if (!active) return;
+        setSchoolOptions([{ value: "", label: copy.selectSchool }]);
+      } finally {
+        if (active) setSchoolsLoading(false);
+      }
+    };
+
+    void loadSchools();
+
+    return () => {
+      active = false;
+    };
+  }, [copy.selectSchool]);
 
   const scrollToBottomFields = () => {
     requestAnimationFrame(() => {
@@ -305,6 +348,11 @@ export default function RegisterComponent() {
       return;
     }
 
+    if (!acceptedTerms) {
+      setErrorMessage(copy.termsRequired);
+      return;
+    }
+
     if (!Number.isFinite(parsedGrade) || parsedGrade < 1) {
       setErrorMessage(copy.invalidGrade);
       return;
@@ -327,6 +375,7 @@ export default function RegisterComponent() {
         phone_number: normalizedPhone || undefined,
         school_id: resolvedSchoolId || undefined,
         section: resolvedSection || undefined,
+        has_accepted_terms_policy: true,
       });
 
       let remoteStudentPhotoUri = "";
@@ -384,10 +433,7 @@ export default function RegisterComponent() {
         style={styles.keyboardAvoiding}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
-        <TouchableWithoutFeedback
-          onPress={Keyboard.dismiss}
-          accessible={false}
-        >
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
           <ScrollView
             ref={scrollRef}
             contentContainerStyle={styles.container}
@@ -402,422 +448,463 @@ export default function RegisterComponent() {
             </View>
 
             <View style={styles.form}>
-          <View style={styles.inputContainer}>
-            <Ionicons
-              name="person-outline"
-              size={20}
-              color={AUTH_COLORS.textLight}
-              style={styles.icon}
-            />
-            <TextInput
-              placeholder={copy.fullNamePlaceholder}
-              value={fullName}
-              onChangeText={setFullName}
-              style={styles.input}
-            />
-          </View>
+              <View style={styles.inputContainer}>
+                <Ionicons
+                  name="person-outline"
+                  size={20}
+                  color={AUTH_COLORS.textLight}
+                  style={styles.icon}
+                />
+                <TextInput
+                  placeholder={copy.fullNamePlaceholder}
+                  value={fullName}
+                  onChangeText={setFullName}
+                  style={styles.input}
+                />
+              </View>
 
-          <View>
-            <TouchableOpacity
-              style={styles.dropdownTrigger}
-              onPress={() =>
-                setActiveDropdown((prev) => (prev === "grade" ? null : "grade"))
-              }
-            >
-              <Ionicons
-                name="school-outline"
-                size={20}
-                color={AUTH_COLORS.textLight}
-                style={styles.icon}
-              />
-              <Text style={styles.dropdownTriggerText}>
-                {copy.gradeLabel(gradeLevel)}
-              </Text>
-              <Ionicons
-                name={
-                  activeDropdown === "grade" ? "chevron-up" : "chevron-down"
-                }
-                size={18}
-                color={AUTH_COLORS.textLight}
-              />
-            </TouchableOpacity>
+              <View>
+                <TouchableOpacity
+                  style={styles.dropdownTrigger}
+                  onPress={() =>
+                    setActiveDropdown((prev) =>
+                      prev === "grade" ? null : "grade",
+                    )
+                  }
+                >
+                  <Ionicons
+                    name="school-outline"
+                    size={20}
+                    color={AUTH_COLORS.textLight}
+                    style={styles.icon}
+                  />
+                  <Text style={styles.dropdownTriggerText}>
+                    {copy.gradeLabel(gradeLevel)}
+                  </Text>
+                  <Ionicons
+                    name={
+                      activeDropdown === "grade" ? "chevron-up" : "chevron-down"
+                    }
+                    size={18}
+                    color={AUTH_COLORS.textLight}
+                  />
+                </TouchableOpacity>
 
-            {activeDropdown === "grade" && (
-              <View style={styles.dropdownList}>
-                {gradeOptions.map((grade) => (
+                {activeDropdown === "grade" && (
+                  <View style={styles.dropdownList}>
+                    {gradeOptions.map((grade) => (
+                      <TouchableOpacity
+                        key={grade}
+                        style={[
+                          styles.dropdownItem,
+                          gradeLevel === grade && styles.dropdownItemActive,
+                        ]}
+                        onPress={() => {
+                          setGradeLevel(grade);
+                          setActiveDropdown(null);
+                        }}
+                      >
+                        <Text
+                          style={[
+                            styles.dropdownItemText,
+                            gradeLevel === grade &&
+                              styles.dropdownItemTextActive,
+                          ]}
+                        >
+                          {copy.gradeLabel(grade)}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
+              </View>
+
+              <View style={styles.inputContainer}>
+                <Ionicons
+                  name="call-outline"
+                  size={20}
+                  color={AUTH_COLORS.textLight}
+                  style={styles.icon}
+                />
+                <TextInput
+                  placeholder={copy.phonePlaceholder}
+                  value={phoneNumber}
+                  onChangeText={setPhoneNumber}
+                  keyboardType="phone-pad"
+                  style={styles.input}
+                />
+              </View>
+
+              <View>
+                <View style={styles.schoolTypeRow}>
                   <TouchableOpacity
-                    key={grade}
                     style={[
-                      styles.dropdownItem,
-                      gradeLevel === grade && styles.dropdownItemActive,
+                      styles.schoolTypeChip,
+                      hasSchool && styles.schoolTypeChipActive,
+                    ]}
+                    onPress={() => setHasSchool(true)}
+                  >
+                    <Text
+                      style={[
+                        styles.schoolTypeChipText,
+                        hasSchool && styles.schoolTypeChipTextActive,
+                      ]}
+                    >
+                      {copy.withSchool}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.schoolTypeChip,
+                      !hasSchool && styles.schoolTypeChipActive,
                     ]}
                     onPress={() => {
-                      setGradeLevel(grade);
-                      setActiveDropdown(null);
+                      setHasSchool(false);
+                      setSchoolId("");
+                      setSection("");
+                      setActiveDropdown((prev) =>
+                        prev === "school" || prev === "section" ? null : prev,
+                      );
                     }}
                   >
                     <Text
                       style={[
-                        styles.dropdownItemText,
-                        gradeLevel === grade && styles.dropdownItemTextActive,
+                        styles.schoolTypeChipText,
+                        !hasSchool && styles.schoolTypeChipTextActive,
                       ]}
                     >
-                      {copy.gradeLabel(grade)}
+                      {copy.withoutSchool}
                     </Text>
                   </TouchableOpacity>
-                ))}
+                </View>
+                <Text style={styles.schoolTypeHint}>
+                  {hasSchool ? copy.schoolInfoHint : copy.noSchoolInfoHint}
+                </Text>
               </View>
-            )}
-          </View>
 
-          <View style={styles.inputContainer}>
-            <Ionicons
-              name="call-outline"
-              size={20}
-              color={AUTH_COLORS.textLight}
-              style={styles.icon}
-            />
-            <TextInput
-              placeholder={copy.phonePlaceholder}
-              value={phoneNumber}
-              onChangeText={setPhoneNumber}
-              keyboardType="phone-pad"
-              style={styles.input}
-            />
-          </View>
+              {hasSchool && (
+                <View>
+                  <TouchableOpacity
+                    style={styles.dropdownTrigger}
+                    onPress={() =>
+                      setActiveDropdown((prev) =>
+                        prev === "school" ? null : "school",
+                      )
+                    }
+                  >
+                    <Ionicons
+                      name="business-outline"
+                      size={20}
+                      color={AUTH_COLORS.textLight}
+                      style={styles.icon}
+                    />
+                    <Text
+                      style={[
+                        styles.dropdownTriggerText,
+                        !schoolId && styles.dropdownPlaceholderText,
+                      ]}
+                    >
+                      {schoolOptions.find((item) => item.value === schoolId)
+                        ?.label || copy.selectSchool}
+                    </Text>
+                    <Ionicons
+                      name={
+                        activeDropdown === "school"
+                          ? "chevron-up"
+                          : "chevron-down"
+                      }
+                      size={18}
+                      color={AUTH_COLORS.textLight}
+                    />
+                  </TouchableOpacity>
 
-          <View>
-            <View style={styles.schoolTypeRow}>
-              <TouchableOpacity
-                style={[
-                  styles.schoolTypeChip,
-                  hasSchool && styles.schoolTypeChipActive,
-                ]}
-                onPress={() => setHasSchool(true)}
-              >
-                <Text
+                  {activeDropdown === "school" && (
+                    <View style={styles.dropdownList}>
+                      {schoolOptions.map((school) => (
+                        <TouchableOpacity
+                          key={school.label}
+                          style={[
+                            styles.dropdownItem,
+                            schoolId === school.value &&
+                              styles.dropdownItemActive,
+                          ]}
+                          onPress={() => {
+                            setSchoolId(school.value);
+                            setActiveDropdown(null);
+                          }}
+                        >
+                          <Text
+                            style={[
+                              styles.dropdownItemText,
+                              schoolId === school.value &&
+                                styles.dropdownItemTextActive,
+                            ]}
+                          >
+                            {school.label}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
+                  {schoolsLoading ? (
+                    <Text style={styles.schoolTypeHint}>
+                      {copy.loadingSchools}
+                    </Text>
+                  ) : schoolOptions.length <= 1 ? (
+                    <Text style={styles.schoolTypeHint}>
+                      {copy.noSchoolsAvailable}
+                    </Text>
+                  ) : null}
+                </View>
+              )}
+
+              {hasSchool && (
+                <View>
+                  <TouchableOpacity
+                    style={styles.dropdownTrigger}
+                    onPress={() =>
+                      setActiveDropdown((prev) =>
+                        prev === "section" ? null : "section",
+                      )
+                    }
+                  >
+                    <Ionicons
+                      name="layers-outline"
+                      size={20}
+                      color={AUTH_COLORS.textLight}
+                      style={styles.icon}
+                    />
+                    <Text
+                      style={[
+                        styles.dropdownTriggerText,
+                        !section && styles.dropdownPlaceholderText,
+                      ]}
+                    >
+                      {section
+                        ? copy.sectionLabel(section)
+                        : copy.selectSection}
+                    </Text>
+                    <Ionicons
+                      name={
+                        activeDropdown === "section"
+                          ? "chevron-up"
+                          : "chevron-down"
+                      }
+                      size={18}
+                      color={AUTH_COLORS.textLight}
+                    />
+                  </TouchableOpacity>
+
+                  {activeDropdown === "section" && (
+                    <View style={styles.dropdownList}>
+                      {sectionOptions.map((item) => (
+                        <TouchableOpacity
+                          key={item.label}
+                          style={[
+                            styles.dropdownItem,
+                            section === item.value && styles.dropdownItemActive,
+                          ]}
+                          onPress={() => {
+                            setSection(item.value);
+                            setActiveDropdown(null);
+                          }}
+                        >
+                          <Text
+                            style={[
+                              styles.dropdownItemText,
+                              section === item.value &&
+                                styles.dropdownItemTextActive,
+                            ]}
+                          >
+                            {item.label}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
+                </View>
+              )}
+
+              <View style={styles.languageRow}>
+                <TouchableOpacity
                   style={[
-                    styles.schoolTypeChipText,
-                    hasSchool && styles.schoolTypeChipTextActive,
+                    styles.languageChip,
+                    language === "en" && styles.languageChipActive,
                   ]}
+                  onPress={() => setLanguage("en")}
                 >
-                  {copy.withSchool}
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.schoolTypeChip,
-                  !hasSchool && styles.schoolTypeChipActive,
-                ]}
-                onPress={() => {
-                  setHasSchool(false);
-                  setSchoolId("");
-                  setSection("");
-                  setActiveDropdown((prev) =>
-                    prev === "school" || prev === "section" ? null : prev,
-                  );
-                }}
-              >
-                <Text
+                  <Text
+                    style={[
+                      styles.languageChipText,
+                      language === "en" && styles.languageChipTextActive,
+                    ]}
+                  >
+                    {copy.english}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
                   style={[
-                    styles.schoolTypeChipText,
-                    !hasSchool && styles.schoolTypeChipTextActive,
+                    styles.languageChip,
+                    language === "om" && styles.languageChipActive,
                   ]}
+                  onPress={() => setLanguage("om")}
                 >
-                  {copy.withoutSchool}
-                </Text>
-              </TouchableOpacity>
-            </View>
-            <Text style={styles.schoolTypeHint}>
-              {hasSchool ? copy.schoolInfoHint : copy.noSchoolInfoHint}
-            </Text>
-          </View>
+                  <Text
+                    style={[
+                      styles.languageChipText,
+                      language === "om" && styles.languageChipTextActive,
+                    ]}
+                  >
+                    {copy.afaanOromoo}
+                  </Text>
+                </TouchableOpacity>
+              </View>
 
-          {hasSchool && (
-            <View>
-              <TouchableOpacity
-                style={styles.dropdownTrigger}
-                onPress={() =>
-                  setActiveDropdown((prev) =>
-                    prev === "school" ? null : "school",
-                  )
-                }
-              >
+              <View style={styles.avatarSection}>
+                <Text style={styles.avatarSectionTitle}>
+                  {copy.profilePhoto}
+                </Text>
+                <Text style={styles.avatarSectionHint}>
+                  {copy.profilePhotoHint}
+                </Text>
+                <View style={styles.photoPickerRow}>
+                  <View style={styles.photoPreview}>
+                    {studentPhotoUri ? (
+                      <Image
+                        source={{ uri: studentPhotoUri }}
+                        style={styles.photoPreviewImage}
+                      />
+                    ) : (
+                      <Ionicons
+                        name="person-circle-outline"
+                        size={48}
+                        color={AUTH_COLORS.textLight}
+                      />
+                    )}
+                  </View>
+                  <TouchableOpacity
+                    style={styles.photoPickerButton}
+                    onPress={pickStudentPhoto}
+                  >
+                    <Text style={styles.photoPickerButtonText}>
+                      {studentPhotoUri
+                        ? copy.changeProfilePhoto
+                        : copy.chooseProfilePhoto}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              <View style={styles.inputContainer}>
                 <Ionicons
-                  name="business-outline"
+                  name="mail-outline"
                   size={20}
                   color={AUTH_COLORS.textLight}
                   style={styles.icon}
                 />
-                <Text
-                  style={[
-                    styles.dropdownTriggerText,
-                    !schoolId && styles.dropdownPlaceholderText,
-                  ]}
-                >
-                  {schoolOptions.find((item) => item.value === schoolId)
-                    ?.label || copy.selectSchool}
-                </Text>
-                <Ionicons
-                  name={
-                    activeDropdown === "school" ? "chevron-up" : "chevron-down"
-                  }
-                  size={18}
-                  color={AUTH_COLORS.textLight}
+                <TextInput
+                  placeholder={copy.emailPlaceholder}
+                  value={email}
+                  onChangeText={setEmail}
+                  autoCapitalize="none"
+                  keyboardType="email-address"
+                  onFocus={scrollToBottomFields}
+                  style={styles.input}
                 />
-              </TouchableOpacity>
+              </View>
 
-              {activeDropdown === "school" && (
-                <View style={styles.dropdownList}>
-                  {schoolOptions.map((school) => (
-                    <TouchableOpacity
-                      key={school.label}
-                      style={[
-                        styles.dropdownItem,
-                        schoolId === school.value && styles.dropdownItemActive,
-                      ]}
-                      onPress={() => {
-                        setSchoolId(school.value);
-                        setActiveDropdown(null);
-                      }}
-                    >
-                      <Text
-                        style={[
-                          styles.dropdownItemText,
-                          schoolId === school.value &&
-                            styles.dropdownItemTextActive,
-                        ]}
-                      >
-                        {school.label}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              )}
-            </View>
-          )}
-
-          {hasSchool && (
-            <View>
-              <TouchableOpacity
-                style={styles.dropdownTrigger}
-                onPress={() =>
-                  setActiveDropdown((prev) =>
-                    prev === "section" ? null : "section",
-                  )
-                }
-              >
+              <View style={styles.inputContainer}>
                 <Ionicons
-                  name="layers-outline"
+                  name="lock-closed-outline"
                   size={20}
                   color={AUTH_COLORS.textLight}
                   style={styles.icon}
                 />
-                <Text
-                  style={[
-                    styles.dropdownTriggerText,
-                    !section && styles.dropdownPlaceholderText,
-                  ]}
-                >
-                  {section ? copy.sectionLabel(section) : copy.selectSection}
-                </Text>
-                <Ionicons
-                  name={
-                    activeDropdown === "section" ? "chevron-up" : "chevron-down"
-                  }
-                  size={18}
-                  color={AUTH_COLORS.textLight}
+                <TextInput
+                  placeholder={copy.passwordPlaceholder}
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry={!showPassword}
+                  onFocus={scrollToBottomFields}
+                  style={styles.input}
                 />
-              </TouchableOpacity>
-
-              {activeDropdown === "section" && (
-                <View style={styles.dropdownList}>
-                  {sectionOptions.map((item) => (
-                    <TouchableOpacity
-                      key={item.label}
-                      style={[
-                        styles.dropdownItem,
-                        section === item.value && styles.dropdownItemActive,
-                      ]}
-                      onPress={() => {
-                        setSection(item.value);
-                        setActiveDropdown(null);
-                      }}
-                    >
-                      <Text
-                        style={[
-                          styles.dropdownItemText,
-                          section === item.value && styles.dropdownItemTextActive,
-                        ]}
-                      >
-                        {item.label}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              )}
-            </View>
-          )}
-
-          <View style={styles.languageRow}>
-            <TouchableOpacity
-              style={[
-                styles.languageChip,
-                language === "en" && styles.languageChipActive,
-              ]}
-              onPress={() => setLanguage("en")}
-            >
-              <Text
-                style={[
-                  styles.languageChipText,
-                  language === "en" && styles.languageChipTextActive,
-                ]}
-              >
-                {copy.english}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.languageChip,
-                language === "om" && styles.languageChipActive,
-              ]}
-              onPress={() => setLanguage("om")}
-            >
-              <Text
-                style={[
-                  styles.languageChipText,
-                  language === "om" && styles.languageChipTextActive,
-                ]}
-              >
-                {copy.afaanOromoo}
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.avatarSection}>
-            <Text style={styles.avatarSectionTitle}>{copy.profilePhoto}</Text>
-            <Text style={styles.avatarSectionHint}>{copy.profilePhotoHint}</Text>
-            <View style={styles.photoPickerRow}>
-              <View style={styles.photoPreview}>
-                {studentPhotoUri ? (
-                  <Image
-                    source={{ uri: studentPhotoUri }}
-                    style={styles.photoPreviewImage}
-                  />
-                ) : (
+                <TouchableOpacity
+                  onPress={() => setShowPassword((prev) => !prev)}
+                  style={styles.visibilityToggle}
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    showPassword ? copy.hidePassword : copy.showPassword
+                  }
+                >
                   <Ionicons
-                    name="person-circle-outline"
-                    size={48}
+                    name={showPassword ? "eye-off-outline" : "eye-outline"}
+                    size={20}
                     color={AUTH_COLORS.textLight}
                   />
-                )}
+                </TouchableOpacity>
               </View>
+
+              <View style={styles.inputContainer}>
+                <Ionicons
+                  name="shield-checkmark-outline"
+                  size={20}
+                  color={AUTH_COLORS.textLight}
+                  style={styles.icon}
+                />
+                <TextInput
+                  placeholder={copy.confirmPasswordPlaceholder}
+                  value={confirmPassword}
+                  onChangeText={setConfirmPassword}
+                  secureTextEntry={!showConfirmPassword}
+                  onFocus={scrollToBottomFields}
+                  style={styles.input}
+                />
+                <TouchableOpacity
+                  onPress={() => setShowConfirmPassword((prev) => !prev)}
+                  style={styles.visibilityToggle}
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    showConfirmPassword ? copy.hidePassword : copy.showPassword
+                  }
+                >
+                  <Ionicons
+                    name={
+                      showConfirmPassword ? "eye-off-outline" : "eye-outline"
+                    }
+                    size={20}
+                    color={AUTH_COLORS.textLight}
+                  />
+                </TouchableOpacity>
+              </View>
+
               <TouchableOpacity
-                style={styles.photoPickerButton}
-                onPress={pickStudentPhoto}
+                style={styles.termsRow}
+                onPress={() => setAcceptedTerms((prev) => !prev)}
+                activeOpacity={0.8}
               >
-                <Text style={styles.photoPickerButtonText}>
-                  {studentPhotoUri
-                    ? copy.changeProfilePhoto
-                    : copy.chooseProfilePhoto}
+                <Ionicons
+                  name={acceptedTerms ? "checkbox-outline" : "square-outline"}
+                  size={22}
+                  color={
+                    acceptedTerms ? AUTH_COLORS.primary : AUTH_COLORS.textLight
+                  }
+                />
+                <Text style={styles.termsText}>{copy.termsLabel}</Text>
+              </TouchableOpacity>
+
+              {!!errorMessage && (
+                <Text style={styles.errorText}>{errorMessage}</Text>
+              )}
+
+              <TouchableOpacity
+                style={[styles.btnPrimary, isLoading && styles.btnDisabled]}
+                onPress={handleRegister}
+                disabled={isLoading}
+              >
+                <Text style={styles.btnText}>
+                  {isLoading ? copy.creating : copy.signUp}
                 </Text>
               </TouchableOpacity>
-            </View>
-          </View>
-
-          <View style={styles.inputContainer}>
-            <Ionicons
-              name="mail-outline"
-              size={20}
-              color={AUTH_COLORS.textLight}
-              style={styles.icon}
-            />
-            <TextInput
-              placeholder={copy.emailPlaceholder}
-              value={email}
-              onChangeText={setEmail}
-              autoCapitalize="none"
-              keyboardType="email-address"
-              onFocus={scrollToBottomFields}
-              style={styles.input}
-            />
-          </View>
-
-          <View style={styles.inputContainer}>
-            <Ionicons
-              name="lock-closed-outline"
-              size={20}
-              color={AUTH_COLORS.textLight}
-              style={styles.icon}
-            />
-            <TextInput
-              placeholder={copy.passwordPlaceholder}
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry={!showPassword}
-              onFocus={scrollToBottomFields}
-              style={styles.input}
-            />
-            <TouchableOpacity
-              onPress={() => setShowPassword((prev) => !prev)}
-              style={styles.visibilityToggle}
-              accessibilityRole="button"
-              accessibilityLabel={
-                showPassword ? copy.hidePassword : copy.showPassword
-              }
-            >
-              <Ionicons
-                name={showPassword ? "eye-off-outline" : "eye-outline"}
-                size={20}
-                color={AUTH_COLORS.textLight}
-              />
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.inputContainer}>
-            <Ionicons
-              name="shield-checkmark-outline"
-              size={20}
-              color={AUTH_COLORS.textLight}
-              style={styles.icon}
-            />
-            <TextInput
-              placeholder={copy.confirmPasswordPlaceholder}
-              value={confirmPassword}
-              onChangeText={setConfirmPassword}
-              secureTextEntry={!showConfirmPassword}
-              onFocus={scrollToBottomFields}
-              style={styles.input}
-            />
-            <TouchableOpacity
-              onPress={() => setShowConfirmPassword((prev) => !prev)}
-              style={styles.visibilityToggle}
-              accessibilityRole="button"
-              accessibilityLabel={
-                showConfirmPassword ? copy.hidePassword : copy.showPassword
-              }
-            >
-              <Ionicons
-                name={showConfirmPassword ? "eye-off-outline" : "eye-outline"}
-                size={20}
-                color={AUTH_COLORS.textLight}
-              />
-            </TouchableOpacity>
-          </View>
-
-          {!!errorMessage && (
-            <Text style={styles.errorText}>{errorMessage}</Text>
-          )}
-
-          <TouchableOpacity
-            style={[styles.btnPrimary, isLoading && styles.btnDisabled]}
-            onPress={handleRegister}
-            disabled={isLoading}
-          >
-            <Text style={styles.btnText}>
-              {isLoading ? copy.creating : copy.signUp}
-            </Text>
-          </TouchableOpacity>
             </View>
 
             <View style={styles.footer}>
@@ -1027,6 +1114,18 @@ const styles = StyleSheet.create({
   errorText: {
     color: AUTH_COLORS.error,
     fontSize: 13,
+  },
+  termsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginTop: 2,
+  },
+  termsText: {
+    flex: 1,
+    color: AUTH_COLORS.text,
+    fontSize: 13,
+    lineHeight: 18,
   },
   btnPrimary: {
     backgroundColor: AUTH_COLORS.primary,

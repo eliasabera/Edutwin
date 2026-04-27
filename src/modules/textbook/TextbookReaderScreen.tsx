@@ -1,15 +1,18 @@
 import Constants from "expo-constants";
 import {
   fetchTextbookResources,
-  fetchTextbookSelectionAsk,
+  generateAIResponseStream,
+  preloadTextbookContext,
   type TextbookResourceItem,
 } from "@/shared/services/ai-service";
 import { useTranslation } from "@/shared/i18n";
+import { setArTopics, type ArTopic } from "@/shared/services/ar-service";
 import { useStudentProfile } from "@/shared/store/user-store";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
+  Alert,
   ActivityIndicator,
   Animated,
   Easing,
@@ -139,7 +142,9 @@ const toAnswerParagraphs = (text: string): string[] =>
     .filter(Boolean);
 
 const compactSelectionPreview = (text: string, maxLength = 180): string => {
-  const normalized = String(text || "").replace(/\s+/g, " ").trim();
+  const normalized = String(text || "")
+    .replace(/\s+/g, " ")
+    .trim();
   if (!normalized) return "";
   if (normalized.length <= maxLength) return normalized;
   return `${normalized.slice(0, maxLength - 1)}...`;
@@ -201,6 +206,12 @@ export default function TextbookReaderScreen({
     useLatestHighlight: isOm
       ? "Filannoo haaraa fayyadami"
       : "Use latest highlight",
+    lockedFeature: isOm ? "Tajaajila cufame" : "Locked feature",
+    proLabel: isOm ? "Subscription" : "Subscription",
+    freeLabel: isOm ? "Bilisa" : "Free",
+    lockMessage: isOm
+      ? "Akkawuntiin kee hin subscribe ta'in jira. Mataduree hunda keessaa AR tokko fi Canvas tokko bilisa fayyadamuu dandeessa. Hafeef subscription barbaachisa."
+      : "Your account is not subscribed yet. You can use one free AR model and one free Canvas model per subject. The rest require subscription.",
   };
   const insets = useSafeAreaInsets();
   const studentProfile = useStudentProfile();
@@ -220,6 +231,7 @@ export default function TextbookReaderScreen({
   const [selectionAnswer, setSelectionAnswer] = useState("");
   const [isAskingSelection, setIsAskingSelection] = useState(false);
   const triggerScale = useRef(new Animated.Value(1)).current;
+  const isSubscribed = studentProfile.isSubscribed === true;
   const answerParagraphs = useMemo(
     () => toAnswerParagraphs(selectionAnswer),
     [selectionAnswer],
@@ -304,6 +316,26 @@ export default function TextbookReaderScreen({
       });
   }, [filteredResources]);
 
+  const freeResourceIds = useMemo(() => {
+    const freeCanvasId =
+      resources.find((item) => item.type !== "ar")?.id ?? null;
+    const freeArId = resources.find((item) => item.type === "ar")?.id ?? null;
+
+    return { freeCanvasId, freeArId };
+  }, [resources]);
+
+  const isResourceLocked = (item: LearningResource) => {
+    if (isSubscribed) {
+      return false;
+    }
+
+    if (item.type === "ar") {
+      return item.id !== freeResourceIds.freeArId;
+    }
+
+    return item.id !== freeResourceIds.freeCanvasId;
+  };
+
   const showResourceButton = Boolean(textbookUrl);
   const requestSubject =
     subjectName === "biology" ||
@@ -334,6 +366,23 @@ export default function TextbookReaderScreen({
 
         if (remoteResources.length > 0) {
           setResources(remoteResources);
+          const arTopicsFromResources: ArTopic[] = remoteResources
+            .filter((item) => item.type === "ar")
+            .map((item) => ({
+              id: item.id,
+              title: item.title,
+              topic: item.topic,
+              subject: requestSubject,
+              chapter: item.chapter,
+              description: `${item.topic} AR model`,
+              learningPrompt: `Explore ${item.topic} in AR and explain what you observe.`,
+              modelUrl: item.url,
+              integrationNote: "Loaded from textbook resources API.",
+              isPlaceholderDemo: false,
+            }));
+          if (arTopicsFromResources.length > 0) {
+            setArTopics(arTopicsFromResources);
+          }
           setChapterFilter("All");
         } else {
           setResources([]);
@@ -356,6 +405,17 @@ export default function TextbookReaderScreen({
     };
   }, [requestGrade, requestSubject, textbookUrl]);
 
+  useEffect(() => {
+    if (!textbookUrl) {
+      return;
+    }
+
+    void preloadTextbookContext({
+      subject: requestSubject,
+      grade: requestGrade,
+    });
+  }, [requestGrade, requestSubject, textbookUrl]);
+
   const askFromSelection = async (selectedTextForQuestion: string) => {
     const normalizedSelection = selectedTextForQuestion.trim();
     const normalizedQuestion = selectionQuestion.trim();
@@ -367,36 +427,31 @@ export default function TextbookReaderScreen({
     setSelectionAnswer("");
 
     try {
-      const response = await fetchTextbookSelectionAsk({
-        subject: requestSubject,
-        grade: requestGrade,
-        chapter: "",
-        question: normalizedQuestion,
-        selected_text: normalizedSelection,
-        full_name:
-          typeof studentProfile.fullName === "string" &&
-          studentProfile.fullName.trim()
-            ? studentProfile.fullName
-            : "Student",
-        support_subjects: Array.isArray(studentProfile.supportSubjects)
-          ? studentProfile.supportSubjects
-          : [],
-        strong_subjects: Array.isArray(studentProfile.strongSubjects)
-          ? studentProfile.strongSubjects
-          : [],
-        mastery_score:
-          typeof studentProfile.masteryScore === "number"
-            ? studentProfile.masteryScore
-            : null,
-        performance_band:
-          typeof studentProfile.performanceBand === "string" &&
-          studentProfile.performanceBand.trim()
-            ? studentProfile.performanceBand
-            : "unknown",
-      });
+      const composedQuestion = normalizedSelection
+        ? [
+            "Use the selected textbook passage to answer the student's question.",
+            "If it is a calculation, show clear steps and the final answer.",
+            "",
+            "Selected passage:",
+            normalizedSelection.slice(0, 1400),
+            "",
+            `Student question: ${normalizedQuestion}`,
+          ].join("\n")
+        : normalizedQuestion;
+
+      let streamed = "";
+      const response = await generateAIResponseStream(
+        composedQuestion,
+        (chunk) => {
+          streamed += chunk;
+          setSelectionAnswer(streamed || " ");
+        },
+        requestSubject,
+      );
+
       setSelectionAnswer(
         sanitizeSelectionAnswerText(
-          response.response || "No answer generated.",
+          response || streamed || "No answer generated.",
         ),
       );
     } catch {
@@ -409,7 +464,19 @@ export default function TextbookReaderScreen({
   };
 
   const openResource = (item: LearningResource) => {
+    if (isResourceLocked(item)) {
+      Alert.alert(copy.lockedFeature, copy.lockMessage, [{ text: "OK" }]);
+      return;
+    }
+
     if (item.type === "ar") {
+      if (item.id?.trim()) {
+        setShowResourceModal(false);
+        setActiveResource(null);
+        router.push(`/ar-view/${item.id.trim()}` as never);
+        return;
+      }
+
       if (item.url.startsWith("ar://")) {
         const modelId = item.url.replace("ar://", "").trim();
         if (modelId) {
@@ -650,34 +717,63 @@ export default function TextbookReaderScreen({
 
                       <Text style={styles.groupTypeTitle}>{copy.canvas}</Text>
                       {group.canvas.length > 0 ? (
-                        group.canvas.map((item) => (
-                          <Pressable
-                            key={item.id}
-                            style={styles.canvasChoiceCard}
-                            onPress={() => openResource(item)}
-                          >
-                            <View style={styles.canvasChoiceLeft}>
-                              <Ionicons
-                                name="cube-outline"
-                                size={18}
-                                color="#0B5FFF"
-                              />
-                              <View>
-                                <Text style={styles.canvasChoiceTitle}>
-                                  {item.title}
-                                </Text>
-                                <Text style={styles.canvasChoiceSubtitle}>
-                                  {item.topic} • CANVAS
-                                </Text>
+                        group.canvas.map((item) => {
+                          const locked = isResourceLocked(item);
+
+                          return (
+                            <Pressable
+                              key={item.id}
+                              style={[
+                                styles.canvasChoiceCard,
+                                locked && styles.lockedChoiceCard,
+                              ]}
+                              onPress={() => openResource(item)}
+                            >
+                              <View style={styles.canvasChoiceLeft}>
+                                <Ionicons
+                                  name={
+                                    locked
+                                      ? "lock-closed-outline"
+                                      : "cube-outline"
+                                  }
+                                  size={18}
+                                  color={locked ? "#6B7A94" : "#0B5FFF"}
+                                />
+                                <View>
+                                  <Text style={styles.canvasChoiceTitle}>
+                                    {item.title}
+                                  </Text>
+                                  <Text style={styles.canvasChoiceSubtitle}>
+                                    {item.topic} • CANVAS
+                                  </Text>
+                                </View>
                               </View>
-                            </View>
-                            <Ionicons
-                              name="chevron-forward"
-                              size={18}
-                              color="#0B5FFF"
-                            />
-                          </Pressable>
-                        ))
+                              <View style={styles.choiceRightWrap}>
+                                {!isSubscribed ? (
+                                  <View
+                                    style={[
+                                      styles.accessBadge,
+                                      locked
+                                        ? styles.accessBadgeLocked
+                                        : styles.accessBadgeFree,
+                                    ]}
+                                  >
+                                    <Text style={styles.accessBadgeText}>
+                                      {locked ? copy.proLabel : copy.freeLabel}
+                                    </Text>
+                                  </View>
+                                ) : null}
+                                <Ionicons
+                                  name={
+                                    locked ? "lock-closed" : "chevron-forward"
+                                  }
+                                  size={18}
+                                  color={locked ? "#6B7A94" : "#0B5FFF"}
+                                />
+                              </View>
+                            </Pressable>
+                          );
+                        })
                       ) : (
                         <Text style={styles.groupEmptyText}>
                           {copy.noCanvasInChapter}
@@ -686,34 +782,63 @@ export default function TextbookReaderScreen({
 
                       <Text style={styles.groupTypeTitle}>{copy.ar}</Text>
                       {group.ar.length > 0 ? (
-                        group.ar.map((item) => (
-                          <Pressable
-                            key={item.id}
-                            style={styles.canvasChoiceCard}
-                            onPress={() => openResource(item)}
-                          >
-                            <View style={styles.canvasChoiceLeft}>
-                              <Ionicons
-                                name="scan-outline"
-                                size={18}
-                                color="#0B5FFF"
-                              />
-                              <View>
-                                <Text style={styles.canvasChoiceTitle}>
-                                  {item.title}
-                                </Text>
-                                <Text style={styles.canvasChoiceSubtitle}>
-                                  {item.topic} • AR
-                                </Text>
+                        group.ar.map((item) => {
+                          const locked = isResourceLocked(item);
+
+                          return (
+                            <Pressable
+                              key={item.id}
+                              style={[
+                                styles.canvasChoiceCard,
+                                locked && styles.lockedChoiceCard,
+                              ]}
+                              onPress={() => openResource(item)}
+                            >
+                              <View style={styles.canvasChoiceLeft}>
+                                <Ionicons
+                                  name={
+                                    locked
+                                      ? "lock-closed-outline"
+                                      : "scan-outline"
+                                  }
+                                  size={18}
+                                  color={locked ? "#6B7A94" : "#0B5FFF"}
+                                />
+                                <View>
+                                  <Text style={styles.canvasChoiceTitle}>
+                                    {item.title}
+                                  </Text>
+                                  <Text style={styles.canvasChoiceSubtitle}>
+                                    {item.topic} • AR
+                                  </Text>
+                                </View>
                               </View>
-                            </View>
-                            <Ionicons
-                              name="chevron-forward"
-                              size={18}
-                              color="#0B5FFF"
-                            />
-                          </Pressable>
-                        ))
+                              <View style={styles.choiceRightWrap}>
+                                {!isSubscribed ? (
+                                  <View
+                                    style={[
+                                      styles.accessBadge,
+                                      locked
+                                        ? styles.accessBadgeLocked
+                                        : styles.accessBadgeFree,
+                                    ]}
+                                  >
+                                    <Text style={styles.accessBadgeText}>
+                                      {locked ? copy.proLabel : copy.freeLabel}
+                                    </Text>
+                                  </View>
+                                ) : null}
+                                <Ionicons
+                                  name={
+                                    locked ? "lock-closed" : "chevron-forward"
+                                  }
+                                  size={18}
+                                  color={locked ? "#6B7A94" : "#0B5FFF"}
+                                />
+                              </View>
+                            </Pressable>
+                          );
+                        })
                       ) : (
                         <Text style={styles.groupEmptyText}>
                           {copy.noArInChapter}
@@ -797,7 +922,8 @@ export default function TextbookReaderScreen({
 
               <Pressable
                 onPress={() => {
-                  const latestHighlight = selectedText.trim() || selectedTextDraft;
+                  const latestHighlight =
+                    selectedText.trim() || selectedTextDraft;
                   setSelectedText(latestHighlight);
                   setSelectedTextDraft(latestHighlight);
                   void askFromSelection(latestHighlight);
@@ -933,6 +1059,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
+  lockedChoiceCard: {
+    borderColor: "#D8E1EF",
+    backgroundColor: "#F7F9FC",
+  },
   canvasChoiceLeft: {
     flexDirection: "row",
     alignItems: "center",
@@ -948,6 +1078,27 @@ const styles = StyleSheet.create({
     color: "#4E6284",
     fontSize: 12,
     fontWeight: "600",
+  },
+  choiceRightWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  accessBadge: {
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  accessBadgeLocked: {
+    backgroundColor: "#0F1A2E",
+  },
+  accessBadgeFree: {
+    backgroundColor: "#1D7A4A",
+  },
+  accessBadgeText: {
+    color: "#FFFFFF",
+    fontSize: 10,
+    fontWeight: "800",
   },
   chapterGroupCard: {
     borderWidth: 1,

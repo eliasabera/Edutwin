@@ -420,6 +420,13 @@ export const recordPracticeCompletion = ({
     };
   });
 
+  if ((currentProfile.streak ?? 0) < gamificationState.currentStreak) {
+    updateStudentProfile({
+      streak: gamificationState.currentStreak,
+      lastActive: todayKey,
+    });
+  }
+
   void syncTwinProgress({
     xp_delta: Math.max(3, completionPercent >= 100 ? 10 : Math.round(completionPercent / 10) + 2),
     subject,

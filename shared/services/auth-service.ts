@@ -22,6 +22,12 @@ export type StudentRegistrationPayload = {
   phone_number?: string;
   school_id?: string;
   section?: string;
+  has_accepted_terms_policy?: boolean;
+};
+
+export type PublicSchoolOption = {
+  _id: string;
+  name: string;
 };
 
 type AuthApiResponse<TData> = {
@@ -146,14 +152,16 @@ const LOGIN_URL =
     : `http://${AUTH_HOST}:5000/api/auth/login`);
 
 const DEFAULT_PROFILE_URL = `http://${AUTH_HOST}:5000/api/users/me`;
-const DEFAULT_UPLOAD_STUDENT_PHOTO_URL =
-  `http://${AUTH_HOST}:5000/api/uploads/student-photo`;
+const DEFAULT_UPLOAD_STUDENT_PHOTO_URL = `http://${AUTH_HOST}:5000/api/uploads/student-photo`;
+const DEFAULT_PUBLIC_SCHOOLS_URL = `http://${AUTH_HOST}:5000/api/schools/public`;
 
 const PROFILE_URL =
   process.env.EXPO_PUBLIC_AUTH_PROFILE_URL || DEFAULT_PROFILE_URL;
 const UPLOAD_STUDENT_PHOTO_URL =
   process.env.EXPO_PUBLIC_AUTH_UPLOAD_STUDENT_PHOTO_URL ||
   DEFAULT_UPLOAD_STUDENT_PHOTO_URL;
+const PUBLIC_SCHOOLS_URL =
+  process.env.EXPO_PUBLIC_AUTH_PUBLIC_SCHOOLS_URL || DEFAULT_PUBLIC_SCHOOLS_URL;
 const DEFAULT_PROFILE_FALLBACK_URLS = [`http://${AUTH_HOST}:5000/api/users/me`];
 
 const PROFILE_FALLBACK_URLS = (
@@ -288,6 +296,27 @@ const deriveSubjectsFromScores = (
   }
 
   return { support: Array.from(support), strong: Array.from(strong) };
+};
+
+const buildDisjointSubjectLists = (profile: BackendStudentProfile) => {
+  const derived = deriveSubjectsFromScores(profile.subject_scores);
+  const supportSource = normalizeSubjectList(profile.support_subjects).length > 0
+    ? normalizeSubjectList(profile.support_subjects)
+    : derived.support;
+  const strongSource = normalizeSubjectList(profile.strong_subjects).length > 0
+    ? normalizeSubjectList(profile.strong_subjects)
+    : derived.strong;
+
+  const strongSet = new Set(strongSource);
+  const supportSet = new Set(supportSource);
+  for (const item of strongSet) {
+    supportSet.delete(item);
+  }
+
+  return {
+    supportSubjects: Array.from(supportSet) as StudentProfile["supportSubjects"],
+    strongSubjects: Array.from(strongSet) as StudentProfile["strongSubjects"],
+  };
 };
 
 const request = async <TData>(
@@ -436,7 +465,10 @@ const buildStudentProfileUpdatePayload = (
     if (Number.isFinite(parsedGrade)) {
       payload.grade_level = parsedGrade;
     }
-  } else if (typeof updates.grade === "number" && Number.isFinite(updates.grade)) {
+  } else if (
+    typeof updates.grade === "number" &&
+    Number.isFinite(updates.grade)
+  ) {
     payload.grade = String(updates.grade);
     payload.grade_level = updates.grade;
   }
@@ -530,54 +562,46 @@ export const setCachedStudentProfile = (
 
 export const mapBackendProfileToStudentProfile = (
   profile: BackendStudentProfile,
-): Partial<StudentProfile> => ({
-  fullName: profile.full_name?.trim() || "Student",
-  grade: String(profile.grade_level ?? profile.grade ?? "9"),
-  masteryScore:
-    typeof profile.mastery_score === "number" ? profile.mastery_score : 55,
-  performanceBand:
-    profile.performance_band === "top"
-      ? "top"
-      : profile.performance_band === "support" ||
-          profile.performance_band === "low"
-        ? "support"
-        : "medium",
-  preferredLanguage: profile.language === "om" ? "om" : "en",
-  twinName: profile.twin_name?.trim() || "EduTwin",
-  supportSubjects:
-    normalizeSubjectList(profile.support_subjects).length > 0
-      ? (normalizeSubjectList(
-          profile.support_subjects,
-        ) as StudentProfile["supportSubjects"])
-      : (deriveSubjectsFromScores(profile.subject_scores)
-          .support as StudentProfile["supportSubjects"]),
-  strongSubjects:
-    normalizeSubjectList(profile.strong_subjects).length > 0
-      ? (normalizeSubjectList(
-          profile.strong_subjects,
-        ) as StudentProfile["strongSubjects"])
-      : (deriveSubjectsFromScores(profile.subject_scores)
-          .strong as StudentProfile["strongSubjects"]),
-  diagnosticCompleted:
-    typeof profile.diagnostic_completed === "boolean"
-      ? profile.diagnostic_completed
-      : false,
-  xp: typeof profile.xp === "number" ? profile.xp : undefined,
-  streak: typeof profile.streak === "number" ? profile.streak : undefined,
-  lastActive: profile.last_active || null,
-  studentPhotoUri:
-    typeof profile.student_photo_url === "string"
-      ? profile.student_photo_url.trim() || undefined
-      : undefined,
-  twinPhotoUri:
-    typeof profile.twin_photo_url === "string"
-      ? profile.twin_photo_url.trim() || undefined
-      : undefined,
-  isSubscribed: profile.is_subscribed === true,
-  labBonusUnlock: profile.lab_bonus_unlock === true,
-  subscriptionStatus: profile.subscription_status || null,
-  subscriptionPeriodEnd: profile.subscription_period_end || null,
-});
+): Partial<StudentProfile> => {
+  const { supportSubjects, strongSubjects } = buildDisjointSubjectLists(profile);
+
+  return {
+    fullName: profile.full_name?.trim() || "Student",
+    grade: String(profile.grade_level ?? profile.grade ?? "9"),
+    masteryScore:
+      typeof profile.mastery_score === "number" ? profile.mastery_score : 55,
+    performanceBand:
+      profile.performance_band === "top"
+        ? "top"
+        : profile.performance_band === "support" ||
+            profile.performance_band === "low"
+          ? "support"
+          : "medium",
+    preferredLanguage: profile.language === "om" ? "om" : "en",
+    twinName: profile.twin_name?.trim() || "EduTwin",
+    supportSubjects,
+    strongSubjects,
+    diagnosticCompleted:
+      typeof profile.diagnostic_completed === "boolean"
+        ? profile.diagnostic_completed
+        : false,
+    xp: typeof profile.xp === "number" ? profile.xp : undefined,
+    streak: typeof profile.streak === "number" ? profile.streak : undefined,
+    lastActive: profile.last_active || null,
+    studentPhotoUri:
+      typeof profile.student_photo_url === "string"
+        ? profile.student_photo_url.trim() || undefined
+        : undefined,
+    twinPhotoUri:
+      typeof profile.twin_photo_url === "string"
+        ? profile.twin_photo_url.trim() || undefined
+        : undefined,
+    isSubscribed: profile.is_subscribed === true,
+    labBonusUnlock: profile.lab_bonus_unlock === true,
+    subscriptionStatus: profile.subscription_status || null,
+    subscriptionPeriodEnd: profile.subscription_period_end || null,
+  };
+};
 
 export const loginUser = async (email: string, password: string) => {
   const data = await request<LoginResponseData>(LOGIN_URL, {
@@ -599,6 +623,41 @@ export const registerStudent = async (payload: StudentRegistrationPayload) => {
   await persistAuthToken(data.token);
   currentUser = data.user;
   return data;
+};
+
+export const fetchPublicSchools = async (): Promise<PublicSchoolOption[]> => {
+  let response: Response;
+  try {
+    response = await fetch(PUBLIC_SCHOOLS_URL, {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
+  } catch {
+    throw new Error(
+      `Network request failed. Check backend reachability at ${PUBLIC_SCHOOLS_URL}`,
+    );
+  }
+
+  const responseBody = await parseJson(response);
+  const successFlag = isRecord(responseBody) ? responseBody.success : undefined;
+  const payload = extractPayload<unknown>(responseBody);
+
+  if (!response.ok || successFlag === false || !Array.isArray(payload)) {
+    const message = extractErrorMessage(
+      responseBody,
+      "Failed to fetch schools",
+    );
+    throw new Error(message);
+  }
+
+  return payload
+    .filter((item) => isRecord(item) && typeof item._id === "string")
+    .map((item) => ({
+      _id: String(item._id),
+      name: typeof item.name === "string" ? item.name : "School",
+    }));
 };
 
 export const hydrateAuthToken = async () => {
@@ -716,13 +775,16 @@ export const redeemLabBonusUnlock = async () => {
 
   let response: Response;
   try {
-    response = await fetch(`${NODE_API_BASE_URL}/api/gamification/me/redeem-lab-bonus`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
+    response = await fetch(
+      `${NODE_API_BASE_URL}/api/gamification/me/redeem-lab-bonus`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
       },
-    });
+    );
   } catch {
     throw new Error(
       `Network request failed. Check backend reachability at ${NODE_API_BASE_URL}`,
@@ -734,7 +796,10 @@ export const redeemLabBonusUnlock = async () => {
   const payload = extractPayload<BackendStudentProfile>(responseBody);
 
   if (!response.ok || successFlag === false || !payload) {
-    const message = extractErrorMessage(responseBody, "Failed to redeem lab bonus");
+    const message = extractErrorMessage(
+      responseBody,
+      "Failed to redeem lab bonus",
+    );
     throw new Error(message);
   }
 
@@ -870,11 +935,7 @@ export const uploadStudentPhotoFromProfile = async (
       ? payload.public_id
       : undefined;
 
-  if (
-    response.ok &&
-    successFlag !== false &&
-    (topLevelUrl || nestedUrl)
-  ) {
+  if (response.ok && successFlag !== false && (topLevelUrl || nestedUrl)) {
     return {
       student_photo_url: topLevelUrl || nestedUrl,
       public_id: publicId,

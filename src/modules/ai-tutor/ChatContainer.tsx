@@ -9,6 +9,8 @@ import {
   Keyboard,
   KeyboardEvent,
   KeyboardAvoidingView,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
   Platform,
   StyleSheet,
   Text,
@@ -106,6 +108,7 @@ export default function ChatContainer() {
     subject?: string | string[];
   }>();
   const flatListRef = useRef<FlatList<ChatMessage>>(null);
+  const shouldAutoScrollRef = useRef(true);
   const studentProfile = useStudentProfile();
   const handledPrefillRef = useRef<string | null>(null);
 
@@ -198,6 +201,17 @@ export default function ChatContainer() {
     flatListRef.current?.scrollToEnd({ animated: true });
   };
 
+  const updateAutoScrollState = (
+    event: NativeSyntheticEvent<NativeScrollEvent>,
+  ) => {
+    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+    const distanceFromBottom =
+      contentSize.height - (contentOffset.y + layoutMeasurement.height);
+
+    // Only auto-scroll while the user is close to the latest messages.
+    shouldAutoScrollRef.current = distanceFromBottom < 120;
+  };
+
   const selectedSubjectLabel =
     subjectOptions.find((subject) => subject.value === selectedSubject)
       ?.label ?? "Subject";
@@ -238,6 +252,7 @@ export default function ChatContainer() {
     const history = buildChatHistory(messages);
 
     setMessages((current) => [...current, userMessage, aiPlaceholder]);
+    shouldAutoScrollRef.current = true;
     setInputText("");
     setIsSubjectMenuOpen(false);
     setIsLoading(true);
@@ -383,6 +398,8 @@ export default function ChatContainer() {
           keyboardDismissMode="on-drag"
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
+          onScroll={updateAutoScrollState}
+          scrollEventThrottle={16}
           ListHeaderComponent={
             <View>
               <View style={styles.sectionHeader}>
@@ -400,7 +417,11 @@ export default function ChatContainer() {
               </View>
             </View>
           }
-          onContentSizeChange={scrollToEnd}
+          onContentSizeChange={() => {
+            if (shouldAutoScrollRef.current) {
+              scrollToEnd();
+            }
+          }}
         />
 
         <View

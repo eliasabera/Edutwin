@@ -24,6 +24,7 @@ import {
 import { useStudentProfile } from "../../../shared/store/user-store";
 import {
   fetchAllCanvasLabResources,
+  fetchAllArLabResources,
   type LabCanvasResource,
 } from "../../../shared/services/ai-service";
 import {
@@ -31,7 +32,7 @@ import {
   mapBackendProfileToStudentProfile,
 } from "../../../shared/services/auth-service";
 import { updateStudentProfile } from "../../../shared/store/user-store";
-import { getArTopics } from "../../../shared/services/ar-service";
+import { setArTopics, type ArTopic } from "../../../shared/services/ar-service";
 
 type SubjectKey = "biology" | "chemistry" | "physics" | "math";
 
@@ -94,7 +95,6 @@ export default function LabListingComponent() {
     appSettings.themeMode === "system"
       ? (deviceTheme ?? getEffectiveThemeMode()) === "dark"
       : appSettings.themeMode === "dark";
-  const arTopics = getArTopics();
   const { language } = useTranslation();
   const isOm = language === "om";
   const copy = {
@@ -145,6 +145,7 @@ export default function LabListingComponent() {
     return isOm ? "Herrega" : "Math";
   };
   const [canvasResources, setCanvasResources] = useState<LabItem[]>([]);
+  const [arTopics, setArTopicsState] = useState<ArTopic[]>([]);
   const [isLoadingCanvas, setIsLoadingCanvas] = useState(true);
   const [activeCanvasUrl, setActiveCanvasUrl] = useState<string | null>(null);
   const [isSubjectDropdownOpen, setIsSubjectDropdownOpen] = useState(false);
@@ -152,7 +153,10 @@ export default function LabListingComponent() {
   const [selectedSubject, setSelectedSubject] = useState<SubjectKey>("biology");
   const [selectedMode, setSelectedMode] = useState<"canvas" | "ar">("canvas");
   const [selectedChapter, setSelectedChapter] = useState<string>("");
-  const studentGradeNumber = Number.parseInt(String(studentProfile.grade || ""), 10);
+  const studentGradeNumber = Number.parseInt(
+    String(studentProfile.grade || ""),
+    10,
+  );
 
   useEffect(() => {
     let isMounted = true;
@@ -160,29 +164,58 @@ export default function LabListingComponent() {
     const loadCanvasResources = async () => {
       setIsLoadingCanvas(true);
       try {
-        const fetched = await fetchAllCanvasLabResources();
+        const [fetchedCanvas, fetchedAr] = await Promise.all([
+          fetchAllCanvasLabResources(),
+          fetchAllArLabResources(),
+        ]);
         if (!isMounted) return;
 
-        const filteredByGrade = Number.isFinite(studentGradeNumber)
-          ? fetched.filter(
-              (item) => !item.gradeLevel || item.gradeLevel === studentGradeNumber,
+        const filteredCanvasByGrade = Number.isFinite(studentGradeNumber)
+          ? fetchedCanvas.filter(
+              (item) =>
+                !item.gradeLevel || item.gradeLevel === studentGradeNumber,
             )
-          : fetched;
+          : fetchedCanvas;
 
-        const mapped = filteredByGrade.map((item: LabCanvasResource) => {
-          const subjectKey = toSubjectKey(item.subject);
-          return {
-            id: item.id,
-            title: item.title,
-            category: toCategory(subjectKey),
-            chapter: item.chapter,
-            icon: SUBJECT_ICON[subjectKey],
-            desc: item.topic,
-            url: item.url,
-          } as LabItem;
-        });
+        const filteredArByGrade = Number.isFinite(studentGradeNumber)
+          ? fetchedAr.filter(
+              (item) =>
+                !item.gradeLevel || item.gradeLevel === studentGradeNumber,
+            )
+          : fetchedAr;
 
-        setCanvasResources(mapped);
+        const mappedCanvas = filteredCanvasByGrade.map(
+          (item: LabCanvasResource) => {
+            const subjectKey = toSubjectKey(item.subject);
+            return {
+              id: item.id,
+              title: item.title,
+              category: toCategory(subjectKey),
+              chapter: item.chapter,
+              icon: SUBJECT_ICON[subjectKey],
+              desc: item.topic,
+              url: item.url,
+            } as LabItem;
+          },
+        );
+
+        const mappedAr: ArTopic[] = filteredArByGrade.map((item) => ({
+          id: item.id,
+          title: item.title,
+          topic: item.topic,
+          subject: toSubjectKey(item.subject),
+          gradeLevel: item.gradeLevel,
+          chapter: item.chapter,
+          description: `${item.topic} AR model`,
+          learningPrompt: `Explore ${item.topic} in AR and explain the key concept.`,
+          modelUrl: item.url,
+          integrationNote: "Loaded from virtual lab database.",
+          isPlaceholderDemo: false,
+        }));
+
+        setCanvasResources(mappedCanvas);
+        setArTopicsState(mappedAr);
+        setArTopics(mappedAr);
       } finally {
         if (isMounted) {
           setIsLoadingCanvas(false);
@@ -273,7 +306,8 @@ export default function LabListingComponent() {
 
   const isSubscribed = studentProfile.isSubscribed === true;
   const hasRedeemedLabBonus = studentProfile.labBonusUnlock === true;
-  const hasBonusXpAccess = (studentProfile.xp ?? 0) >= 2000 && !hasRedeemedLabBonus;
+  const hasBonusXpAccess =
+    (studentProfile.xp ?? 0) >= 2000 && !hasRedeemedLabBonus;
 
   const freeAccess = useMemo(() => {
     const freeCanvasIds = new Set<string>();
@@ -458,9 +492,23 @@ export default function LabListingComponent() {
               >
                 <View style={styles.overviewStatTop}>
                   <Ionicons name={item.icon} size={15} color="#0B5FFF" />
-                  <Text style={[styles.overviewStatValue, { color: isDark ? "#F4F7FB" : "#1A202C" }]}>{item.value}</Text>
+                  <Text
+                    style={[
+                      styles.overviewStatValue,
+                      { color: isDark ? "#F4F7FB" : "#1A202C" },
+                    ]}
+                  >
+                    {item.value}
+                  </Text>
                 </View>
-                <Text style={[styles.overviewStatLabel, { color: isDark ? "#AAB7CF" : "#5A6C87" }]}>{item.label}</Text>
+                <Text
+                  style={[
+                    styles.overviewStatLabel,
+                    { color: isDark ? "#AAB7CF" : "#5A6C87" },
+                  ]}
+                >
+                  {item.label}
+                </Text>
               </View>
             ))}
           </View>
@@ -547,10 +595,18 @@ export default function LabListingComponent() {
           ) : null}
 
           <View style={styles.modeToggleRow}>
-            {([
-              { key: "canvas" as const, label: copy.canvasModels, icon: "layers-outline" as const },
-              { key: "ar" as const, label: copy.arModels, icon: "cube-outline" as const },
-            ]).map((mode) => {
+            {[
+              {
+                key: "canvas" as const,
+                label: copy.canvasModels,
+                icon: "layers-outline" as const,
+              },
+              {
+                key: "ar" as const,
+                label: copy.arModels,
+                icon: "cube-outline" as const,
+              },
+            ].map((mode) => {
               const active = selectedMode === mode.key;
               return (
                 <TouchableOpacity
@@ -679,95 +735,113 @@ export default function LabListingComponent() {
               </Text>
             ) : (
               <View style={styles.modelBlock}>
-                {filteredCanvas.map((item) => (
+                {filteredCanvas.map((item) =>
                   (() => {
                     const locked = isCanvasLocked(item.id);
                     const freeItem = !locked && !isSubscribed;
                     return (
-                  <TouchableOpacity
-                    key={item.id}
-                    style={[
-                      styles.canvasCard,
-                      locked && styles.lockedCard,
-                      {
-                        backgroundColor: isDark
-                          ? "rgba(14,26,44,0.9)"
-                          : "rgba(255,255,255,0.84)",
-                        borderColor: isDark
-                          ? "#22324E"
-                          : "rgba(11, 95, 255, 0.12)",
-                      },
-                    ]}
-                    onPress={() => (locked ? showLockedMessage() : openSimulation(item.url))}
-                    activeOpacity={0.9}
-                  >
-                    <View
-                      style={[
-                        styles.iconBox,
-                        styles.iconBoxBlue,
-                        {
-                          backgroundColor: isDark ? "#121C2E" : "#E7F0FF",
-                          borderColor: isDark ? "#2E4368" : "#C8DCF9",
-                        },
-                      ]}
-                    >
-                      <Ionicons
-                        name={item.icon as any}
-                        size={28}
-                        color={HOME_PRIMARY}
-                      />
-                    </View>
-
-                    <View style={styles.info}>
-                      <View style={styles.topRow}>
-                        <Text style={styles.category}>CANVAS</Text>
-                        {locked ? (
-                          <View style={styles.lockBadge}>
-                            <Ionicons name="lock-closed" size={12} color="#FFFFFF" />
-                            <Text style={styles.lockBadgeText}>{copy.proLabel}</Text>
-                          </View>
-                        ) : freeItem ? (
-                          <View style={[styles.lockBadge, styles.freeBadge]}>
-                            <Ionicons name="gift-outline" size={12} color="#FFFFFF" />
-                            <Text style={styles.lockBadgeText}>{copy.freeLabel}</Text>
-                          </View>
-                        ) : (
+                      <TouchableOpacity
+                        key={item.id}
+                        style={[
+                          styles.canvasCard,
+                          locked && styles.lockedCard,
+                          {
+                            backgroundColor: isDark
+                              ? "rgba(14,26,44,0.9)"
+                              : "rgba(255,255,255,0.84)",
+                            borderColor: isDark
+                              ? "#22324E"
+                              : "rgba(11, 95, 255, 0.12)",
+                          },
+                        ]}
+                        onPress={() =>
+                          locked
+                            ? showLockedMessage()
+                            : openSimulation(item.url)
+                        }
+                        activeOpacity={0.9}
+                      >
+                        <View
+                          style={[
+                            styles.iconBox,
+                            styles.iconBoxBlue,
+                            {
+                              backgroundColor: isDark ? "#121C2E" : "#E7F0FF",
+                              borderColor: isDark ? "#2E4368" : "#C8DCF9",
+                            },
+                          ]}
+                        >
                           <Ionicons
-                            name="chevron-forward"
-                            size={20}
-                            color={isDark ? "#8FA1BF" : COLORS.textLight}
+                            name={item.icon as any}
+                            size={28}
+                            color={HOME_PRIMARY}
                           />
-                        )}
-                      </View>
-                      <Text
-                        style={[
-                          styles.labTitle,
-                          { color: isDark ? "#F4F7FB" : "#1A202C" },
-                        ]}
-                      >
-                        {item.title}
-                      </Text>
-                      <Text
-                        style={[
-                          styles.chapterText,
-                          { color: isDark ? "#BFD6FF" : "#35507E" },
-                        ]}
-                      >
-                        {item.chapter}
-                      </Text>
-                      <Text
-                        style={[
-                          styles.desc,
-                          { color: isDark ? "#AAB7CF" : "#5A6C87" },
-                        ]}
-                      >
-                        {item.desc}
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
+                        </View>
+
+                        <View style={styles.info}>
+                          <View style={styles.topRow}>
+                            <Text style={styles.category}>CANVAS</Text>
+                            {locked ? (
+                              <View style={styles.lockBadge}>
+                                <Ionicons
+                                  name="lock-closed"
+                                  size={12}
+                                  color="#FFFFFF"
+                                />
+                                <Text style={styles.lockBadgeText}>
+                                  {copy.proLabel}
+                                </Text>
+                              </View>
+                            ) : freeItem ? (
+                              <View
+                                style={[styles.lockBadge, styles.freeBadge]}
+                              >
+                                <Ionicons
+                                  name="gift-outline"
+                                  size={12}
+                                  color="#FFFFFF"
+                                />
+                                <Text style={styles.lockBadgeText}>
+                                  {copy.freeLabel}
+                                </Text>
+                              </View>
+                            ) : (
+                              <Ionicons
+                                name="chevron-forward"
+                                size={20}
+                                color={isDark ? "#8FA1BF" : COLORS.textLight}
+                              />
+                            )}
+                          </View>
+                          <Text
+                            style={[
+                              styles.labTitle,
+                              { color: isDark ? "#F4F7FB" : "#1A202C" },
+                            ]}
+                          >
+                            {item.title}
+                          </Text>
+                          <Text
+                            style={[
+                              styles.chapterText,
+                              { color: isDark ? "#BFD6FF" : "#35507E" },
+                            ]}
+                          >
+                            {item.chapter}
+                          </Text>
+                          <Text
+                            style={[
+                              styles.desc,
+                              { color: isDark ? "#AAB7CF" : "#5A6C87" },
+                            ]}
+                          >
+                            {item.desc}
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
                     );
-                  })()
-                ))}
+                  })(),
+                )}
               </View>
             )
           ) : filteredAr.length === 0 ? (
@@ -781,89 +855,107 @@ export default function LabListingComponent() {
             </Text>
           ) : (
             <View style={styles.arStack}>
-              {filteredAr.map((topic) => (
+              {filteredAr.map((topic) =>
                 (() => {
                   const locked = isArLocked(topic.id);
                   const freeItem = !locked && !isSubscribed;
                   return (
-                <TouchableOpacity
-                  key={topic.id}
-                  style={[
-                    styles.arCardWide,
-                    locked && styles.lockedCard,
-                    {
-                      backgroundColor: isDark
-                        ? "rgba(14,26,44,0.9)"
-                        : "rgba(255,255,255,0.86)",
-                      borderColor: isDark ? "#22324E" : "#DCE7FA",
-                    },
-                  ]}
-                  onPress={() => (locked ? showLockedMessage() : openArModel(topic.id))}
-                  activeOpacity={0.9}
-                >
-                  <View style={styles.arCardWideTop}>
-                    <View
+                    <TouchableOpacity
+                      key={topic.id}
                       style={[
-                        styles.arIconWrap,
+                        styles.arCardWide,
+                        locked && styles.lockedCard,
                         {
-                          backgroundColor: isDark ? "#121C2E" : "#E7F0FF",
+                          backgroundColor: isDark
+                            ? "rgba(14,26,44,0.9)"
+                            : "rgba(255,255,255,0.86)",
+                          borderColor: isDark ? "#22324E" : "#DCE7FA",
                         },
                       ]}
+                      onPress={() =>
+                        locked ? showLockedMessage() : openArModel(topic.id)
+                      }
+                      activeOpacity={0.9}
                     >
-                      <Ionicons name="cube-outline" size={20} color="#0B5FFF" />
-                    </View>
-                    {locked ? (
-                      <View style={styles.lockBadge}>
-                        <Ionicons name="lock-closed" size={12} color="#FFFFFF" />
-                        <Text style={styles.lockBadgeText}>{copy.proLabel}</Text>
+                      <View style={styles.arCardWideTop}>
+                        <View
+                          style={[
+                            styles.arIconWrap,
+                            {
+                              backgroundColor: isDark ? "#121C2E" : "#E7F0FF",
+                            },
+                          ]}
+                        >
+                          <Ionicons
+                            name="cube-outline"
+                            size={20}
+                            color="#0B5FFF"
+                          />
+                        </View>
+                        {locked ? (
+                          <View style={styles.lockBadge}>
+                            <Ionicons
+                              name="lock-closed"
+                              size={12}
+                              color="#FFFFFF"
+                            />
+                            <Text style={styles.lockBadgeText}>
+                              {copy.proLabel}
+                            </Text>
+                          </View>
+                        ) : freeItem ? (
+                          <View style={[styles.lockBadge, styles.freeBadge]}>
+                            <Ionicons
+                              name="gift-outline"
+                              size={12}
+                              color="#FFFFFF"
+                            />
+                            <Text style={styles.lockBadgeText}>
+                              {copy.freeLabel}
+                            </Text>
+                          </View>
+                        ) : (
+                          <Ionicons
+                            name="chevron-forward"
+                            size={18}
+                            color={isDark ? "#8FA1BF" : COLORS.textLight}
+                          />
+                        )}
                       </View>
-                    ) : freeItem ? (
-                      <View style={[styles.lockBadge, styles.freeBadge]}>
-                        <Ionicons name="gift-outline" size={12} color="#FFFFFF" />
-                        <Text style={styles.lockBadgeText}>{copy.freeLabel}</Text>
+                      <Text
+                        style={[
+                          styles.arTitleWide,
+                          { color: isDark ? "#F4F7FB" : "#1A202C" },
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {topic.topic}
+                      </Text>
+                      <Text
+                        style={[
+                          styles.arMeta,
+                          {
+                            color: isDark ? "#AAB7CF" : COLORS.textLight,
+                          },
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {topic.chapter}
+                      </Text>
+                      <View style={styles.arButtonMini}>
+                        <Text style={styles.arButtonMiniText}>
+                          {locked ? copy.lockedFeature : copy.openAr}
+                        </Text>
+                        <Ionicons
+                          name={locked ? "lock-closed" : "arrow-forward"}
+                          size={12}
+                          color="white"
+                        />
                       </View>
-                    ) : (
-                      <Ionicons
-                        name="chevron-forward"
-                        size={18}
-                        color={isDark ? "#8FA1BF" : COLORS.textLight}
-                      />
-                    )}
-                  </View>
-                  <Text
-                    style={[
-                      styles.arTitleWide,
-                      { color: isDark ? "#F4F7FB" : "#1A202C" },
-                    ]}
-                    numberOfLines={1}
-                  >
-                    {topic.topic}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.arMeta,
-                      {
-                        color: isDark ? "#AAB7CF" : COLORS.textLight,
-                      },
-                    ]}
-                    numberOfLines={1}
-                  >
-                    {topic.chapter}
-                  </Text>
-                  <View style={styles.arButtonMini}>
-                    <Text style={styles.arButtonMiniText}>
-                      {locked ? copy.lockedFeature : copy.openAr}
-                    </Text>
-                    <Ionicons
-                      name={locked ? "lock-closed" : "arrow-forward"}
-                      size={12}
-                      color="white"
-                    />
-                  </View>
-                </TouchableOpacity>
+                    </TouchableOpacity>
                   );
-                })()
-              ))}
+                })(),
+              )}
             </View>
           )}
         </View>

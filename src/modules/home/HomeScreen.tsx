@@ -94,18 +94,25 @@ export default function HomeScreen() {
   const showcaseSlideX = useState(() => new Animated.Value(0))[0];
   const showcaseOpacity = useState(() => new Animated.Value(1))[0];
 
-  const studentGradeNumber = Number.parseInt(String(studentProfile.grade || ""), 10);
+  const studentGradeNumber = Number.parseInt(
+    String(studentProfile.grade || ""),
+    10,
+  );
   const homeCopy = {
     homeBadge: isOm ? "Mana" : "Home",
     studentLabel: isOm ? "Barataa" : "Student",
-    streakLabel: isOm ? "guyyaa barnootaa walitti fufee" : "day learning streak",
+    streakLabel: isOm
+      ? "guyyaa barnootaa walitti fufee"
+      : "day learning streak",
     learningFlow: isOm ? "Tartiiba Barnoota EduTwin" : "EduTwin Learning Flow",
     aiTitle: isOm ? "Qajeelfama Gorsaa AI" : "AI Tutor Guidance",
     aiDescription: isOm
       ? "Gorsa dhuunfaa, ibsa saffisaa, fi karaalee shaakalaa sadarkaa barnootaa keetiin wal qabatan argadhu."
       : "Get personalized hints, instant explanations, and adaptive practice paths that match each student's mastery level.",
     openAiTutor: isOm ? "Gorsaa AI Bani" : "Open AI Tutor",
-    canvasTitle: isOm ? "Kaanaavaasii Walitti Hidhata" : "Interactive Learning Canvas",
+    canvasTitle: isOm
+      ? "Kaanaavaasii Walitti Hidhata"
+      : "Interactive Learning Canvas",
     canvasFallbackDescription: isOm
       ? "Moodeelota walitti hidhata qabaniin yaad-rimeewwan mul'ataa gochuun baradhu."
       : "Explore interactive concept simulations that turn abstract ideas into visual understanding.",
@@ -136,6 +143,22 @@ export default function HomeScreen() {
           setCachedStudentProfile(latestProfile);
 
           const currentProfile = getStudentProfile();
+          const normalizedStrong = Array.isArray(latestProfile.strong_subjects)
+            ? latestProfile.strong_subjects.filter((item) =>
+                ["biology", "chemistry", "physics", "math"].includes(item),
+              )
+            : [];
+          const strongSet = new Set(normalizedStrong);
+          const normalizedSupport = Array.isArray(
+            latestProfile.support_subjects,
+          )
+            ? latestProfile.support_subjects
+                .filter((item) =>
+                  ["biology", "chemistry", "physics", "math"].includes(item),
+                )
+                .filter((item) => !strongSet.has(item))
+            : [];
+
           updateStudentProfile({
             fullName: latestProfile.full_name || currentProfile.fullName,
             grade: String(
@@ -159,19 +182,9 @@ export default function HomeScreen() {
                     : currentProfile.performanceBand,
             twinName: latestProfile.twin_name || currentProfile.twinName,
             supportSubjects:
-              Array.isArray(latestProfile.support_subjects) &&
-              latestProfile.support_subjects.length > 0
-                ? (latestProfile.support_subjects.filter((item) =>
-                    ["biology", "chemistry", "physics", "math"].includes(item),
-                  ) as typeof currentProfile.supportSubjects)
-                : currentProfile.supportSubjects,
+              normalizedSupport as typeof currentProfile.supportSubjects,
             strongSubjects:
-              Array.isArray(latestProfile.strong_subjects) &&
-              latestProfile.strong_subjects.length > 0
-                ? (latestProfile.strong_subjects.filter((item) =>
-                    ["biology", "chemistry", "physics", "math"].includes(item),
-                  ) as typeof currentProfile.strongSubjects)
-                : currentProfile.strongSubjects,
+              normalizedStrong as typeof currentProfile.strongSubjects,
             diagnosticCompleted:
               typeof latestProfile.diagnostic_completed === "boolean"
                 ? latestProfile.diagnostic_completed
@@ -221,7 +234,8 @@ export default function HomeScreen() {
 
         const gradeMatched = Number.isFinite(studentGradeNumber)
           ? fetched.filter(
-              (item) => !item.gradeLevel || item.gradeLevel === studentGradeNumber,
+              (item) =>
+                !item.gradeLevel || item.gradeLevel === studentGradeNumber,
             )
           : fetched;
 
@@ -246,7 +260,10 @@ export default function HomeScreen() {
         ];
 
         const prioritized = subjectPriority
-          .map((subject) => merged.find((item) => item.subject === subject) || null)
+          .map(
+            (subject) =>
+              merged.find((item) => item.subject === subject) || null,
+          )
           .filter(Boolean) as LabCanvasResource[];
 
         const remaining = merged.filter(
@@ -340,9 +357,21 @@ export default function HomeScreen() {
         target: "canvas",
       },
     ];
-  }, [homeCopy.aiDescription, homeCopy.aiTitle, homeCopy.canvasFallbackDescription, homeCopy.canvasTitle, homeCopy.openAiTutor, homeCopy.openLab, isLoadingCanvas, isOm, selectedCanvas, t]);
+  }, [
+    homeCopy.aiDescription,
+    homeCopy.aiTitle,
+    homeCopy.canvasFallbackDescription,
+    homeCopy.canvasTitle,
+    homeCopy.openAiTutor,
+    homeCopy.openLab,
+    isLoadingCanvas,
+    isOm,
+    selectedCanvas,
+    t,
+  ]);
 
-  const activeShowcase = showcaseSlides[activeShowcaseIndex] || showcaseSlides[0];
+  const activeShowcase =
+    showcaseSlides[activeShowcaseIndex] || showcaseSlides[0];
 
   useEffect(() => {
     setActiveShowcaseIndex((prev) =>
@@ -424,7 +453,14 @@ export default function HomeScreen() {
         >
           <View style={styles.homeBadgeRow}>
             <Ionicons name="home-outline" size={15} color="#0B5FFF" />
-            <Text style={[styles.homeBadgeText, { color: isDark ? "#F4F7FB" : "#1A202C" }]}>{homeCopy.homeBadge}</Text>
+            <Text
+              style={[
+                styles.homeBadgeText,
+                { color: isDark ? "#F4F7FB" : "#1A202C" },
+              ]}
+            >
+              {homeCopy.homeBadge}
+            </Text>
           </View>
         </View>
 
@@ -448,20 +484,46 @@ export default function HomeScreen() {
                   },
                 ]}
               >
-                <Text style={[styles.avatarText, { color: isDark ? "#DDEAFF" : "#0B5FFF" }]}>{avatarLetter}</Text>
+                <Text
+                  style={[
+                    styles.avatarText,
+                    { color: isDark ? "#DDEAFF" : "#0B5FFF" },
+                  ]}
+                >
+                  {avatarLetter}
+                </Text>
               </View>
 
               <View style={styles.profileTextWrap}>
-                <Text style={[styles.profileName, { color: isDark ? "#F4F7FB" : "#12233F" }]} numberOfLines={1}>
+                <Text
+                  style={[
+                    styles.profileName,
+                    { color: isDark ? "#F4F7FB" : "#12233F" },
+                  ]}
+                  numberOfLines={1}
+                >
                   {profileName}
                 </Text>
-                <Text style={[styles.profileSubtitle, { color: isDark ? "#AAB7CF" : "#60779E" }]} numberOfLines={1}>
+                <Text
+                  style={[
+                    styles.profileSubtitle,
+                    { color: isDark ? "#AAB7CF" : "#60779E" },
+                  ]}
+                  numberOfLines={1}
+                >
                   {homeCopy.studentLabel}
                 </Text>
                 <View style={styles.statusRow}>
                   <Ionicons name="flame" size={12} color="#F7A019" />
-                  <Text style={[styles.statusText, { color: isDark ? "#C3D4F2" : "#5073A8" }]} numberOfLines={1}>
-                    {(studentProfile.streak ?? 0).toString()} {homeCopy.streakLabel}
+                  <Text
+                    style={[
+                      styles.statusText,
+                      { color: isDark ? "#C3D4F2" : "#5073A8" },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {(studentProfile.streak ?? 0).toString()}{" "}
+                    {homeCopy.streakLabel}
                   </Text>
                 </View>
               </View>
@@ -477,7 +539,14 @@ export default function HomeScreen() {
                   },
                 ]}
               >
-                <Text style={[styles.syncText, { color: isDark ? "#BFD6FF" : "#1F4E9D" }]}>{t("home.syncing")}</Text>
+                <Text
+                  style={[
+                    styles.syncText,
+                    { color: isDark ? "#BFD6FF" : "#1F4E9D" },
+                  ]}
+                >
+                  {t("home.syncing")}
+                </Text>
               </View>
             ) : null}
           </View>
@@ -519,12 +588,39 @@ export default function HomeScreen() {
                   },
                 ]}
               >
-                <Ionicons name={activeShowcase.icon} size={20} color="#0B5FFF" />
+                <Ionicons
+                  name={activeShowcase.icon}
+                  size={20}
+                  color="#0B5FFF"
+                />
               </View>
 
-              <Text style={[styles.showcaseEyebrow, { color: isDark ? "#BFD6FF" : "#4870A8" }]}>{homeCopy.learningFlow}</Text>
-              <Text numberOfLines={2} style={[styles.showcaseTitle, { color: isDark ? "#F4F7FB" : "#102646" }]}>{activeShowcase.title}</Text>
-              <Text numberOfLines={3} style={[styles.showcaseDescription, { color: isDark ? "#CFDCF4" : "#4E6790" }]}>{activeShowcase.description}</Text>
+              <Text
+                style={[
+                  styles.showcaseEyebrow,
+                  { color: isDark ? "#BFD6FF" : "#4870A8" },
+                ]}
+              >
+                {homeCopy.learningFlow}
+              </Text>
+              <Text
+                numberOfLines={2}
+                style={[
+                  styles.showcaseTitle,
+                  { color: isDark ? "#F4F7FB" : "#102646" },
+                ]}
+              >
+                {activeShowcase.title}
+              </Text>
+              <Text
+                numberOfLines={3}
+                style={[
+                  styles.showcaseDescription,
+                  { color: isDark ? "#CFDCF4" : "#4E6790" },
+                ]}
+              >
+                {activeShowcase.description}
+              </Text>
 
               <Pressable
                 style={({ pressed }) => [
@@ -533,7 +629,9 @@ export default function HomeScreen() {
                 ]}
                 onPress={handleOpenShowcase}
               >
-                <Text style={styles.showcaseActionText}>{activeShowcase.cta}</Text>
+                <Text style={styles.showcaseActionText}>
+                  {activeShowcase.cta}
+                </Text>
                 <Ionicons name="arrow-forward" size={17} color="#FFFFFF" />
               </Pressable>
             </Animated.View>
@@ -584,9 +682,15 @@ export default function HomeScreen() {
           </View>
 
           <View style={styles.arTextWrap}>
-            <Text style={[styles.arKicker, { color: "#D7E6FF" }]}>{homeCopy.arKicker}</Text>
-            <Text style={[styles.arTitle, { color: "#F6FAFF" }]}>{homeCopy.arTitle}</Text>
-            <Text style={[styles.arDescription, { color: "#D9E6FF" }]}>{homeCopy.arDescription}</Text>
+            <Text style={[styles.arKicker, { color: "#D7E6FF" }]}>
+              {homeCopy.arKicker}
+            </Text>
+            <Text style={[styles.arTitle, { color: "#F6FAFF" }]}>
+              {homeCopy.arTitle}
+            </Text>
+            <Text style={[styles.arDescription, { color: "#D9E6FF" }]}>
+              {homeCopy.arDescription}
+            </Text>
           </View>
 
           <Pressable

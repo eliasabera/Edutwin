@@ -317,16 +317,6 @@ export default function ProfileScreen() {
 
     updateStudentProfile({
       ...mappedProfile,
-      supportSubjects:
-        Array.isArray(mappedProfile.supportSubjects) &&
-        mappedProfile.supportSubjects.length > 0
-          ? mappedProfile.supportSubjects
-          : currentProfile.supportSubjects,
-      strongSubjects:
-        Array.isArray(mappedProfile.strongSubjects) &&
-        mappedProfile.strongSubjects.length > 0
-          ? mappedProfile.strongSubjects
-          : currentProfile.strongSubjects,
       studentPhotoUri:
         mappedProfile.studentPhotoUri !== undefined
           ? mappedProfile.studentPhotoUri

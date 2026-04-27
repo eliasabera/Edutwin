@@ -3,6 +3,7 @@ export type ArTopic = {
   title: string;
   topic: string;
   subject: "biology" | "chemistry" | "physics" | "math";
+  gradeLevel?: number;
   chapter: string;
   description: string;
   learningPrompt: string;
@@ -22,7 +23,7 @@ const HEART_MODEL_URL =
 const HEART_SKETCHFAB_EMBED_URL =
   "https://sketchfab.com/models/d9845afb1ee64ad094adc96320c67d98/embed";
 
-const arTopics: ArTopic[] = [
+const defaultArTopics: ArTopic[] = [
   {
     id: "heart-demo",
     title: "Heart AR Viewer",
@@ -58,7 +59,18 @@ const arTopics: ArTopic[] = [
   },
 ];
 
-export const getArTopics = () => arTopics;
+let arTopicsRegistry: ArTopic[] = [...defaultArTopics];
+
+export const setArTopics = (topics: ArTopic[]) => {
+  if (!Array.isArray(topics) || topics.length === 0) {
+    arTopicsRegistry = [...defaultArTopics];
+    return;
+  }
+
+  arTopicsRegistry = topics;
+};
+
+export const getArTopics = () => arTopicsRegistry;
 
 export const getArTopicById = (id: string) =>
-  arTopics.find((topic) => topic.id === id) ?? null;
+  arTopicsRegistry.find((topic) => topic.id === id) ?? null;

@@ -3,7 +3,11 @@ import { Platform } from "react-native";
 import { getStudentProfile } from "../store/user-store";
 import type { SubjectName } from "../types/domain.types";
 import { getAuthToken } from "./auth-service";
-import { classifyTutorPrompt, recordTutorInteraction, syncTwinProgress } from "./gamification";
+import {
+  classifyTutorPrompt,
+  recordTutorInteraction,
+  syncTwinProgress,
+} from "./gamification";
 
 export type ChatHistoryItem = {
   role: "user" | "assistant";
@@ -88,11 +92,13 @@ const PYTHON_TEXTBOOK_RESOURCES_8001_URL = `http://${API_HOST}:8001/textbook/res
 const PYTHON_TEXTBOOK_RESOURCES_8011_URL = `http://${API_HOST}:8011/textbook/resources`;
 const TEXTBOOK_SELECTION_ASK_URL = `${NODE_API_BASE_URL}/api/ai/textbook/selection-ask`;
 const TEXTBOOK_RESOLVE_URL = `${NODE_API_BASE_URL}/api/textbooks/resolve`;
+const TEXTBOOK_PRELOAD_URL = `${NODE_API_BASE_URL}/api/ai/textbook/preload`;
 const PYTHON_TEXTBOOK_SELECTION_ASK_URL = `${PYTHON_API_BASE_URL}/textbook/selection-ask`;
-const PYTHON_TEXTBOOK_SELECTION_ASK_8001_URL =
-  `http://${API_HOST}:8001/textbook/selection-ask`;
-const PYTHON_TEXTBOOK_SELECTION_ASK_8011_URL =
-  `http://${API_HOST}:8011/textbook/selection-ask`;
+const PYTHON_TEXTBOOK_SELECTION_ASK_8001_URL = `http://${API_HOST}:8001/textbook/selection-ask`;
+const PYTHON_TEXTBOOK_SELECTION_ASK_8011_URL = `http://${API_HOST}:8011/textbook/selection-ask`;
+const PYTHON_TEXTBOOK_PRELOAD_URL = `${PYTHON_API_BASE_URL}/textbook/preload`;
+const PYTHON_TEXTBOOK_PRELOAD_8001_URL = `http://${API_HOST}:8001/textbook/preload`;
+const PYTHON_TEXTBOOK_PRELOAD_8011_URL = `http://${API_HOST}:8011/textbook/preload`;
 
 const buildAuthHeaders = (): Record<string, string> => {
   const token = getAuthToken();
@@ -227,14 +233,20 @@ const normalizeTutorResponse = (text: string) => {
   cleaned = cleaned.replace(/\*\*/g, "");
   cleaned = cleaned.replace(/\r\n/g, "\n");
 
-  cleaned = cleaned.replace(/^\s*(Explanation|Example|Summary|Practice Question)\s*:\s*/gim, "");
+  cleaned = cleaned.replace(
+    /^\s*(Explanation|Example|Summary|Practice Question)\s*:\s*/gim,
+    "",
+  );
   cleaned = cleaned.replace(/^\s*-\s+/gm, "");
   cleaned = cleaned.replace(/\n{3,}/g, "\n\n");
 
   const lines = cleaned
     .split("\n")
     .map((line) => line.trim())
-    .filter((line, index, arr) => line.length > 0 || (index > 0 && arr[index - 1].length > 0));
+    .filter(
+      (line, index, arr) =>
+        line.length > 0 || (index > 0 && arr[index - 1].length > 0),
+    );
 
   cleaned = lines.join("\n").trim();
   return cleaned || text.trim();
@@ -333,12 +345,17 @@ const extractPersistedMessages = (payload: unknown): PersistedChatMessage[] => {
   return [];
 };
 
-const getHistoryEndpointCandidates = (sessionId?: string, preferLatest = false) => {
+const getHistoryEndpointCandidates = (
+  sessionId?: string,
+  preferLatest = false,
+) => {
   const recentQuery = `page=1&limit=${CHAT_HISTORY_LIMIT}&sort=desc`;
   const endpoints = [...CHAT_HISTORY_CANDIDATES];
 
   if (preferLatest) {
-    endpoints.unshift(`${NODE_API_BASE_URL}/api/ai/sessions/latest/messages?${recentQuery}`);
+    endpoints.unshift(
+      `${NODE_API_BASE_URL}/api/ai/sessions/latest/messages?${recentQuery}`,
+    );
   }
 
   if (sessionId && sessionId.trim()) {
@@ -346,7 +363,9 @@ const getHistoryEndpointCandidates = (sessionId?: string, preferLatest = false) 
   }
 
   const candidatesWithQuery = endpoints.map((endpoint) =>
-    endpoint.includes("?") ? `${endpoint}&${recentQuery}` : `${endpoint}?${recentQuery}`,
+    endpoint.includes("?")
+      ? `${endpoint}&${recentQuery}`
+      : `${endpoint}?${recentQuery}`,
   );
 
   return unique(candidatesWithQuery);
@@ -500,7 +519,7 @@ export const generateAIResponseStream = async (
 
         const normalized = normalizeTutorResponse(trimmed);
 
-    recordTutorInteraction(subject, tutorSignal);
+        recordTutorInteraction(subject, tutorSignal);
 
         if (isNodeStreamEndpoint) {
           onChunk(normalized);
@@ -617,6 +636,12 @@ export type TextbookResourcesPayload = {
   unit?: string;
 };
 
+export type TextbookPreloadPayload = {
+  subject: SubjectName;
+  grade: string;
+  unit?: string;
+};
+
 export type TextbookResourceItem = {
   id: string;
   chapter: string;
@@ -647,6 +672,16 @@ export type LabCanvasResource = {
   gradeLevel?: number;
 };
 
+export type LabArResource = {
+  id: string;
+  subject: SubjectName;
+  chapter: string;
+  title: string;
+  topic: string;
+  url: string;
+  gradeLevel?: number;
+};
+
 type SubmitPracticeAttemptPayload = {
   quizId: string;
   answers: Array<{
@@ -655,8 +690,12 @@ type SubmitPracticeAttemptPayload = {
   }>;
 };
 
-const mapPracticeQuestionType = (value: unknown): PracticeQuestion["type"] | null => {
-  const raw = String(value || "").trim().toUpperCase();
+const mapPracticeQuestionType = (
+  value: unknown,
+): PracticeQuestion["type"] | null => {
+  const raw = String(value || "")
+    .trim()
+    .toUpperCase();
   if (raw === "MCQ" || raw === "mcq") return "mcq";
   if (raw === "TRUE_FALSE" || raw === "TRUEFALSE" || raw === "true_false") {
     return "true_false";
@@ -669,7 +708,10 @@ const mapPracticeQuestionType = (value: unknown): PracticeQuestion["type"] | nul
 
 const isAbortError = (error: unknown) => {
   if (!error) return false;
-  if (typeof error === "object" && "name" in (error as Record<string, unknown>)) {
+  if (
+    typeof error === "object" &&
+    "name" in (error as Record<string, unknown>)
+  ) {
     return String((error as Record<string, unknown>).name) === "AbortError";
   }
   return String(error).includes("AbortError");
@@ -683,6 +725,53 @@ const normalizeComparableText = (value: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
+const resolveMcqPracticeAnswer = (rawAnswer: string, options: string[]) => {
+  const answer = String(rawAnswer || "").trim();
+  if (!answer || !Array.isArray(options) || options.length === 0) {
+    return answer;
+  }
+
+  const directNumber = answer.match(/^\s*(\d+)\s*$/);
+  if (directNumber) {
+    const parsed = Number(directNumber[1]);
+    const oneBased = parsed - 1;
+    if (oneBased >= 0 && oneBased < options.length) {
+      return options[oneBased];
+    }
+    if (parsed >= 0 && parsed < options.length) {
+      return options[parsed];
+    }
+  }
+
+  const letterOnly = answer.match(/^\s*\(?([a-zA-Z])\)?[\].:\-]?\s*$/);
+  if (letterOnly) {
+    const idx = letterOnly[1].toUpperCase().charCodeAt(0) - 65;
+    if (idx >= 0 && idx < options.length) {
+      return options[idx];
+    }
+  }
+
+  const optionWord = answer
+    .toLowerCase()
+    .match(/\b(option|choice)\s+([a-z]|\d+)\b/);
+  if (optionWord) {
+    const marker = optionWord[2];
+    if (/^\d+$/.test(marker)) {
+      const idx = Number(marker) - 1;
+      if (idx >= 0 && idx < options.length) {
+        return options[idx];
+      }
+    } else {
+      const idx = marker.toUpperCase().charCodeAt(0) - 65;
+      if (idx >= 0 && idx < options.length) {
+        return options[idx];
+      }
+    }
+  }
+
+  return answer;
+};
+
 const normalizePracticeQuestion = (item: unknown): PracticeQuestion | null => {
   if (!item || typeof item !== "object") {
     return null;
@@ -690,14 +779,16 @@ const normalizePracticeQuestion = (item: unknown): PracticeQuestion | null => {
 
   const record = item as Record<string, unknown>;
   const type =
-    mapPracticeQuestionType(record.type) || mapPracticeQuestionType(record.question_type);
+    mapPracticeQuestionType(record.type) ||
+    mapPracticeQuestionType(record.question_type);
   const question =
     (typeof record.question === "string" && record.question.trim()) ||
     (typeof record.question_text === "string" && record.question_text.trim()) ||
     "";
   const answer =
     (typeof record.answer === "string" && record.answer.trim()) ||
-    (typeof record.correct_answer === "string" && record.correct_answer.trim()) ||
+    (typeof record.correct_answer === "string" &&
+      record.correct_answer.trim()) ||
     "";
   const explanation =
     (typeof record.explanation === "string" && record.explanation.trim()) ||
@@ -720,6 +811,11 @@ const normalizePracticeQuestion = (item: unknown): PracticeQuestion | null => {
         .filter((option) => option.length > 0)
     : undefined;
 
+  const resolvedAnswer =
+    type === "mcq" && Array.isArray(options)
+      ? resolveMcqPracticeAnswer(answer, options)
+      : answer;
+
   return {
     id:
       (typeof record._id === "string" && record._id) ||
@@ -731,7 +827,7 @@ const normalizePracticeQuestion = (item: unknown): PracticeQuestion | null => {
       type === "true_false" && (!options || options.length < 2)
         ? ["TRUE", "FALSE"]
         : options,
-    answer,
+    answer: resolvedAnswer,
     hint,
     explanation,
   };
@@ -754,7 +850,9 @@ const extractPracticeQuestions = (payload: unknown): PracticeQuestion[] => {
     }
   }
 
-  return items.map(normalizePracticeQuestion).filter(Boolean) as PracticeQuestion[];
+  return items
+    .map(normalizePracticeQuestion)
+    .filter(Boolean) as PracticeQuestion[];
 };
 
 export const generatePracticeQuestions = async (
@@ -810,9 +908,9 @@ export const generatePracticeQuestions = async (
     }
 
     void syncTwinProgress({
-		xp_delta: 1,
-		subject: payload.subject,
-	});
+      xp_delta: 1,
+      subject: payload.subject,
+    });
 
     return {
       questions,
@@ -840,7 +938,9 @@ export const generatePracticeQuestions = async (
   }
 };
 
-export const submitPracticeAttempt = async (payload: SubmitPracticeAttemptPayload) => {
+export const submitPracticeAttempt = async (
+  payload: SubmitPracticeAttemptPayload,
+) => {
   if (!payload.quizId || !payload.answers.length) {
     return { success: false, message: "Missing quiz id or answers" };
   }
@@ -867,17 +967,23 @@ export const submitPracticeAttempt = async (payload: SubmitPracticeAttemptPayloa
   } catch (error) {
     return {
       success: false,
-      message: error instanceof Error ? error.message : "Failed to save attempt",
+      message:
+        error instanceof Error ? error.message : "Failed to save attempt",
     };
   }
 };
 
-export const fetchMyPracticeQuizzes = async (): Promise<BackendPracticeQuizSummary[]> => {
+export const fetchMyPracticeQuizzes = async (): Promise<
+  BackendPracticeQuizSummary[]
+> => {
   try {
-    const response = await fetch(`${NODE_API_BASE_URL}/api/quizzes/my-practice`, {
-      method: "GET",
-      headers: buildAuthHeaders(),
-    });
+    const response = await fetch(
+      `${NODE_API_BASE_URL}/api/quizzes/my-practice`,
+      {
+        method: "GET",
+        headers: buildAuthHeaders(),
+      },
+    );
 
     if (!response.ok) {
       throw new Error(await readErrorMessage(response));
@@ -912,7 +1018,9 @@ export const fetchMyPracticeQuizzes = async (): Promise<BackendPracticeQuizSumma
   }
 };
 
-export const fetchPracticeLibraryQuizzes = async (): Promise<BackendPracticeQuizSummary[]> => {
+export const fetchPracticeLibraryQuizzes = async (): Promise<
+  BackendPracticeQuizSummary[]
+> => {
   try {
     const response = await fetch(`${NODE_API_BASE_URL}/api/quizzes/library`, {
       method: "GET",
@@ -1037,7 +1145,9 @@ export const fetchChatHistory = async (sessionId?: string) => {
   }
 
   const resolvedSessionId = sessionId || currentChatSessionId;
-  const endpoints = getHistoryEndpointCandidates(resolvedSessionId || undefined);
+  const endpoints = getHistoryEndpointCandidates(
+    resolvedSessionId || undefined,
+  );
 
   let lastError: unknown = null;
 
@@ -1062,7 +1172,11 @@ export const fetchChatHistory = async (sessionId?: string) => {
       const messages = extractPersistedMessages(data);
       if (Array.isArray(messages) && messages.length > 0) {
         const normalized = messages
-          .filter((item) => typeof item?.message_text === "string" && item.message_text.trim().length > 0)
+          .filter(
+            (item) =>
+              typeof item?.message_text === "string" &&
+              item.message_text.trim().length > 0,
+          )
           .sort((a, b) => {
             const ta = a.timestamp ? new Date(a.timestamp).getTime() : 0;
             const tb = b.timestamp ? new Date(b.timestamp).getTime() : 0;
@@ -1116,7 +1230,11 @@ export const fetchLatestChatHistory = async () => {
       const messages = extractPersistedMessages(data);
       const normalized = Array.isArray(messages)
         ? messages
-            .filter((item) => typeof item?.message_text === "string" && item.message_text.trim().length > 0)
+            .filter(
+              (item) =>
+                typeof item?.message_text === "string" &&
+                item.message_text.trim().length > 0,
+            )
             .sort((a, b) => {
               const ta = a.timestamp ? new Date(a.timestamp).getTime() : 0;
               const tb = b.timestamp ? new Date(b.timestamp).getTime() : 0;
@@ -1182,9 +1300,12 @@ export const fetchTextbookAssist = async (
       return {
         show_canvas_suggestion: Boolean(data?.show_canvas_suggestion),
         topic: typeof data?.topic === "string" ? data.topic : null,
-        canvas_link: typeof data?.canvas_link === "string" ? data.canvas_link : null,
+        canvas_link:
+          typeof data?.canvas_link === "string" ? data.canvas_link : null,
         suggestion_text:
-          typeof data?.suggestion_text === "string" ? data.suggestion_text : null,
+          typeof data?.suggestion_text === "string"
+            ? data.suggestion_text
+            : null,
         message: typeof data?.message === "string" ? data.message : undefined,
         current_page:
           typeof data?.current_page === "number" ? data.current_page : null,
@@ -1203,7 +1324,8 @@ export const fetchTextbookAssist = async (
     canvas_link: null,
     suggestion_text: null,
     message: "Interactive assist is temporarily unavailable.",
-    current_page: typeof payload.current_page === "number" ? payload.current_page : null,
+    current_page:
+      typeof payload.current_page === "number" ? payload.current_page : null,
   };
 };
 
@@ -1220,9 +1342,12 @@ export const fetchTextbookResources = async (
   }
 
   try {
-    const response = await fetch(`${VIRTUAL_LAB_RESOURCES_URL}?${backendQuery.toString()}`, {
-      method: "GET",
-    });
+    const response = await fetch(
+      `${VIRTUAL_LAB_RESOURCES_URL}?${backendQuery.toString()}`,
+      {
+        method: "GET",
+      },
+    );
 
     if (response.ok) {
       const data = await response.json();
@@ -1239,7 +1364,9 @@ export const fetchTextbookResources = async (
           }
 
           const record = item as Record<string, unknown>;
-          const type = String(record.type || record.interaction_type || "").toLowerCase();
+          const type = String(
+            record.type || record.interaction_type || "",
+          ).toLowerCase();
           const url =
             typeof record.url === "string"
               ? record.url.trim()
@@ -1323,7 +1450,9 @@ export const fetchTextbookResources = async (
             return null;
           }
           const record = item as Record<string, unknown>;
-          const type = String(record.type || record.interaction_type || "").toLowerCase();
+          const type = String(
+            record.type || record.interaction_type || "",
+          ).toLowerCase();
           const url =
             typeof record.url === "string"
               ? record.url.trim()
@@ -1364,14 +1493,52 @@ export const fetchTextbookResources = async (
   return [];
 };
 
+export const preloadTextbookContext = async (
+  payload: TextbookPreloadPayload,
+): Promise<void> => {
+  const endpointCandidates = unique([
+    PYTHON_TEXTBOOK_PRELOAD_8011_URL,
+    PYTHON_TEXTBOOK_PRELOAD_URL,
+    PYTHON_TEXTBOOK_PRELOAD_8001_URL,
+    TEXTBOOK_PRELOAD_URL,
+  ]);
+
+  for (const endpoint of endpointCandidates) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+    try {
+      const useNodeHeaders = endpoint === TEXTBOOK_PRELOAD_URL;
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: useNodeHeaders
+          ? buildAuthHeaders()
+          : {
+              "Content-Type": "application/json",
+            },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+
+      if (response.ok) {
+        return;
+      }
+    } catch {
+      // Best effort warm-up only.
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+};
+
 export const fetchTextbookSelectionAsk = async (
   payload: TextbookSelectionAskPayload,
 ): Promise<TextbookSelectionAskResponse> => {
   const endpointCandidates = unique([
-    TEXTBOOK_SELECTION_ASK_URL,
     PYTHON_TEXTBOOK_SELECTION_ASK_8011_URL,
     PYTHON_TEXTBOOK_SELECTION_ASK_URL,
     PYTHON_TEXTBOOK_SELECTION_ASK_8001_URL,
+    TEXTBOOK_SELECTION_ASK_URL,
   ]);
 
   let lastError: unknown = null;
@@ -1421,10 +1588,12 @@ export const fetchTextbookSelectionAsk = async (
 
   console.warn("Textbook selection ask unavailable:", lastError);
   return {
-    response: "I cannot reach the textbook AI service right now. Please try again.",
+    response:
+      "I cannot reach the textbook AI service right now. Please try again.",
     selected_text: payload.selected_text,
     message: "Selection ask is temporarily unavailable.",
-    current_page: typeof payload.current_page === "number" ? payload.current_page : null,
+    current_page:
+      typeof payload.current_page === "number" ? payload.current_page : null,
   };
 };
 
@@ -1488,7 +1657,9 @@ export const fetchResolvedTextbook = async (
 };
 
 const extractSubjectFromUrl = (url: string): SubjectName | null => {
-  const match = String(url || "").match(/\/grade\d+\/(maths|math|chemistry|physics|biology)\//i);
+  const match = String(url || "").match(
+    /\/grade\d+\/(maths|math|chemistry|physics|biology)\//i,
+  );
   const raw = String(match?.[1] || "").toLowerCase();
   if (raw === "maths" || raw === "math") return "math";
   if (raw === "chemistry") return "chemistry";
@@ -1507,11 +1678,21 @@ const extractGradeFromUrl = (url: string): number | null => {
   return Number.isFinite(parsed) ? parsed : null;
 };
 
-export const fetchAllCanvasLabResources = async (): Promise<LabCanvasResource[]> => {
+export const fetchAllCanvasLabResources = async (): Promise<
+  LabCanvasResource[]
+> => {
   try {
-    const response = await fetch(`${VIRTUAL_LAB_RESOURCES_URL}?interaction_type=CANVAS`, {
-      method: "GET",
+    const query = new URLSearchParams({
+      interaction_type: "CANVAS",
+      refresh: "1",
     });
+    const response = await fetch(
+      `${VIRTUAL_LAB_RESOURCES_URL}?${query.toString()}`,
+      {
+        method: "GET",
+        cache: "no-store",
+      },
+    );
 
     if (!response.ok) {
       return [];
@@ -1530,7 +1711,9 @@ export const fetchAllCanvasLabResources = async (): Promise<LabCanvasResource[]>
           return null;
         }
         const record = item as Record<string, unknown>;
-        const type = String(record.type || record.interaction_type || "").toLowerCase();
+        const type = String(
+          record.type || record.interaction_type || "",
+        ).toLowerCase();
         const url =
           typeof record.url === "string"
             ? record.url.trim()
@@ -1558,7 +1741,9 @@ export const fetchAllCanvasLabResources = async (): Promise<LabCanvasResource[]>
           : extractGradeFromUrl(url);
 
         const explicitSubject =
-          typeof record.subject === "string" ? String(record.subject).toLowerCase().trim() : "";
+          typeof record.subject === "string"
+            ? String(record.subject).toLowerCase().trim()
+            : "";
 
         const subject =
           (explicitSubject === "biology" ||
@@ -1579,9 +1764,11 @@ export const fetchAllCanvasLabResources = async (): Promise<LabCanvasResource[]>
             `canvas-${index + 1}`,
           subject,
           chapter:
-            (typeof record.chapter === "string" && record.chapter.trim()) || "General",
+            (typeof record.chapter === "string" && record.chapter.trim()) ||
+            "General",
           topic:
-            (typeof record.topic === "string" && record.topic.trim()) || "General",
+            (typeof record.topic === "string" && record.topic.trim()) ||
+            "General",
           title:
             (typeof record.title === "string" && record.title.trim()) ||
             (typeof record.topic === "string" && record.topic.trim()) ||
@@ -1591,6 +1778,110 @@ export const fetchAllCanvasLabResources = async (): Promise<LabCanvasResource[]>
         };
       })
       .filter(Boolean) as LabCanvasResource[];
+  } catch {
+    return [];
+  }
+};
+
+export const fetchAllArLabResources = async (): Promise<LabArResource[]> => {
+  try {
+    const query = new URLSearchParams({
+      interaction_type: "AR",
+      refresh: "1",
+    });
+    const response = await fetch(
+      `${VIRTUAL_LAB_RESOURCES_URL}?${query.toString()}`,
+      {
+        method: "GET",
+        cache: "no-store",
+      },
+    );
+
+    if (!response.ok) {
+      return [];
+    }
+
+    const data = await response.json();
+    const rawItems = Array.isArray(data?.resources)
+      ? data.resources
+      : Array.isArray(data?.data)
+        ? data.data
+        : [];
+
+    return rawItems
+      .map((item: unknown, index: number) => {
+        if (!item || typeof item !== "object") {
+          return null;
+        }
+
+        const record = item as Record<string, unknown>;
+        const type = String(
+          record.type || record.interaction_type || "",
+        ).toLowerCase();
+        const url =
+          typeof record.url === "string"
+            ? record.url.trim()
+            : typeof record.resource_url === "string"
+              ? record.resource_url.trim()
+              : "";
+
+        if (type !== "ar" || !url) {
+          return null;
+        }
+
+        const gradeFromField =
+          typeof record.grade_level === "number"
+            ? record.grade_level
+            : typeof record.grade_level === "string"
+              ? Number.parseInt(record.grade_level, 10)
+              : typeof record.grade === "number"
+                ? record.grade
+                : typeof record.grade === "string"
+                  ? Number.parseInt(record.grade, 10)
+                  : null;
+
+        const resolvedGrade = Number.isFinite(Number(gradeFromField))
+          ? Number(gradeFromField)
+          : extractGradeFromUrl(url);
+
+        const explicitSubject =
+          typeof record.subject === "string"
+            ? String(record.subject).toLowerCase().trim()
+            : "";
+
+        const subject =
+          (explicitSubject === "biology" ||
+          explicitSubject === "chemistry" ||
+          explicitSubject === "physics" ||
+          explicitSubject === "math"
+            ? (explicitSubject as SubjectName)
+            : extractSubjectFromUrl(url)) || null;
+
+        if (!subject) {
+          return null;
+        }
+
+        return {
+          id:
+            (typeof record.id === "string" && record.id.trim()) ||
+            (typeof record._id === "string" && record._id.trim()) ||
+            `ar-${index + 1}`,
+          subject,
+          chapter:
+            (typeof record.chapter === "string" && record.chapter.trim()) ||
+            "General",
+          topic:
+            (typeof record.topic === "string" && record.topic.trim()) ||
+            "General",
+          title:
+            (typeof record.title === "string" && record.title.trim()) ||
+            (typeof record.topic === "string" && record.topic.trim()) ||
+            "AR model",
+          url,
+          gradeLevel: resolvedGrade ?? undefined,
+        };
+      })
+      .filter(Boolean) as LabArResource[];
   } catch {
     return [];
   }
