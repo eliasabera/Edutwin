@@ -35,6 +35,7 @@ import {
   type ChatHistoryItem,
   type PersistedChatMessage,
 } from "../../../shared/services/ai-service";
+import { getCurrentUser } from "../../../shared/services/auth-service";
 import { useStudentProfile } from "../../../shared/store/user-store";
 import type { SubjectName } from "../../../shared/types/domain.types";
 import MessageBubble from "./MessageBubble";
@@ -47,6 +48,12 @@ type ChatMessage = {
 };
 
 let cachedChatMessages: ChatMessage[] | null = null;
+let cachedChatUserId: string | null = null;
+
+export const clearTutorChatCache = () => {
+  cachedChatMessages = null;
+  cachedChatUserId = null;
+};
 
 const subjectOptions: { label: string; value: SubjectName }[] = [
   { label: "Biology", value: "biology" },
@@ -122,16 +129,25 @@ export default function ChatContainer() {
       studentProfile.strongSubjects[0] ||
       "biology",
   );
-  const [messages, setMessages] = useState<ChatMessage[]>(
-    cachedChatMessages || [
+  const [messages, setMessages] = useState<ChatMessage[]>(() => {
+    const currentUserId = getCurrentUser()?.id ?? null;
+    if (
+      cachedChatMessages?.length &&
+      cachedChatUserId &&
+      currentUserId &&
+      cachedChatUserId === currentUserId
+    ) {
+      return cachedChatMessages;
+    }
+    return [
       {
         id: "welcome",
         text: `Hi ${studentProfile.fullName}, I am ${studentProfile.twinName}.`,
         isUser: false,
         timestamp: getTimeLabel(),
       },
-    ],
-  );
+    ];
+  });
 
   const buildWelcomeMessage = useCallback(
     (): ChatMessage => ({
@@ -160,12 +176,34 @@ export default function ChatContainer() {
   };
 
   useEffect(() => {
+    const currentUserId = getCurrentUser()?.id ?? null;
     cachedChatMessages = messages;
+    cachedChatUserId = currentUserId;
   }, [messages]);
+
+  useEffect(() => {
+    setMessages((prev) => {
+      const withoutWelcome = prev.filter((message) => message.id !== "welcome");
+      if (withoutWelcome.length > 0) {
+        return prev;
+      }
+      return [buildWelcomeMessage()];
+    });
+  }, [buildWelcomeMessage]);
 
   useFocusEffect(
     useCallback(() => {
       let isMounted = true;
+      const currentUserId = getCurrentUser()?.id ?? null;
+
+      if (
+        currentUserId &&
+        cachedChatUserId &&
+        cachedChatUserId !== currentUserId
+      ) {
+        clearTutorChatCache();
+        setMessages([buildWelcomeMessage()]);
+      }
 
       const loadChatHistory = async () => {
         try {
@@ -183,6 +221,7 @@ export default function ChatContainer() {
           const hydrated = [buildWelcomeMessage(), ...dedupeMessages(mapped)];
           setMessages(hydrated);
           cachedChatMessages = hydrated;
+          cachedChatUserId = getCurrentUser()?.id ?? null;
           setTimeout(scrollToEnd, 0);
         } catch (error) {
           console.warn("Failed to load chat history:", error);

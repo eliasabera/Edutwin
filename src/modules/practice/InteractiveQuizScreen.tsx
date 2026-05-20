@@ -23,6 +23,10 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import {
+  getEffectiveThemeMode,
+  useAppSettings,
+} from "@/shared/store/settings-store";
 
 type QuizQuestion = NormalizedPracticeQuestion;
 
@@ -209,7 +213,13 @@ const getSafeHintText = (question: QuizQuestion) => {
 
 export default function InteractiveQuizScreen({ route }: Props) {
   const router = useRouter();
-  const isDark = useColorScheme() === "dark";
+  const appSettings = useAppSettings();
+  const deviceTheme = useColorScheme();
+  const isDark =
+    appSettings.themeMode === "system"
+      ? (deviceTheme ?? getEffectiveThemeMode()) === "dark"
+      : appSettings.themeMode === "dark";
+  const styles = useMemo(() => createQuizStyles(isDark), [isDark]);
   const { t } = useTranslation();
   const rawQuestions = route?.params?.questions;
   const initialQuestions = useMemo(() => {
@@ -255,15 +265,8 @@ export default function InteractiveQuizScreen({ route }: Props) {
   const isFinished = currentIndex >= questions.length;
 
   useEffect(() => {
-    if (initialQuestions.length > 0) {
-      setQuestions(initialQuestions);
-      setIsHydrating(false);
-      setHydrateError("");
-      return;
-    }
-
     if (!quizId) {
-      setQuestions([]);
+      setQuestions(initialQuestions);
       setIsHydrating(false);
       setHydrateError("");
       return;
@@ -298,7 +301,7 @@ export default function InteractiveQuizScreen({ route }: Props) {
     return () => {
       mounted = false;
     };
-  }, [initialQuestions, quizId]);
+  }, [initialQuestions, quizId, quizSubject, t]);
 
   useEffect(() => {
     setCurrentIndex(0);
@@ -576,7 +579,7 @@ export default function InteractiveQuizScreen({ route }: Props) {
             style={styles.input}
             editable={!attempted && !isGrading && !timeUp}
             placeholder={t("practice.typeYourAnswer")}
-            placeholderTextColor={COLORS.textLight}
+            placeholderTextColor={isDark ? "#8FA1BF" : COLORS.textLight}
             multiline
           />
           <TouchableOpacity
@@ -682,253 +685,254 @@ export default function InteractiveQuizScreen({ route }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: "#FFFFFF",
-  },
-  screenContent: {
-    paddingHorizontal: 18,
-    paddingTop: 36,
-    paddingBottom: 28,
-    gap: 14,
-  },
-  screenCenter: {
-    flex: 1,
-    backgroundColor: "#FFFFFF",
-    justifyContent: "center",
-    alignItems: "center",
-    paddingHorizontal: 24,
-    gap: 12,
-  },
-  headerRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  progressText: {
-    color: "#1A202C",
-    fontWeight: "700",
-  },
-  timerPill: {
-    backgroundColor: "#0B5FFF",
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  timerUrgent: {
-    backgroundColor: COLORS.error,
-  },
-  timerText: {
-    color: "white",
-    fontWeight: "700",
-  },
-  questionType: {
-    alignSelf: "flex-start",
-    backgroundColor: "#E7F0FF",
-    color: "#0B5FFF",
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    fontWeight: "700",
-    fontSize: 12,
-  },
-  questionText: {
-    fontSize: 20,
-    fontWeight: "800",
-    color: "#1A202C",
-    lineHeight: 28,
-  },
-  hintBox: {
-    backgroundColor: "#FEF8E7",
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "#F3D27A",
-    padding: 12,
-  },
-  hintTitle: {
-    color: "#8A6418",
-    fontSize: 12,
-    fontWeight: "800",
-    textTransform: "uppercase",
-    letterSpacing: 0.3,
-    marginBottom: 6,
-  },
-  hintText: {
-    color: "#5D430B",
-    fontWeight: "600",
-    lineHeight: 20,
-  },
-  optionList: {
-    gap: 10,
-  },
-  optionButton: {
-    backgroundColor: "white",
-    borderWidth: 1,
-    borderColor: "#D6E4FF",
-    borderRadius: 14,
-    paddingHorizontal: 12,
-    paddingVertical: 14,
-  },
-  optionRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  optionLetterBadge: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: "#EEF4FF",
-    borderWidth: 1,
-    borderColor: "#D6E4FF",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  optionLetterText: {
-    color: "#2E4A86",
-    fontWeight: "800",
-    fontSize: 12,
-  },
-  optionText: {
-    flex: 1,
-    color: "#1A202C",
-    fontWeight: "700",
-  },
-  shortWrap: {
-    gap: 10,
-  },
-  input: {
-    minHeight: 110,
-    backgroundColor: "white",
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "#D6E4FF",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    color: COLORS.text,
-    textAlignVertical: "top",
-  },
-  primaryButton: {
-    alignSelf: "flex-start",
-    backgroundColor: "#0B5FFF",
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  primaryButtonText: {
-    color: "white",
-    fontWeight: "700",
-  },
-  disabledButton: {
-    opacity: 0.55,
-  },
-  gradingRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  gradingText: {
-    color: "#35507E",
-    fontWeight: "600",
-  },
-  feedbackBox: {
-    borderRadius: 14,
-    borderWidth: 1,
-    padding: 12,
-    gap: 8,
-  },
-  correctBox: {
-    borderColor: "#9BE2B7",
-    backgroundColor: "#ECFFF4",
-  },
-  wrongBox: {
-    borderColor: "#F3A8A8",
-    backgroundColor: "#FFF0F0",
-  },
-  feedbackTitle: {
-    fontWeight: "800",
-  },
-  correctText: {
-    color: "#0C8E46",
-  },
-  wrongText: {
-    color: COLORS.error,
-  },
-  feedbackText: {
-    color: "#1A202C",
-    lineHeight: 20,
-  },
-  emptyTitle: {
-    color: "#1A202C",
-    fontSize: 18,
-    fontWeight: "800",
-  },
-  errorText: {
-    color: COLORS.error,
-    textAlign: "center",
-    fontWeight: "600",
-    lineHeight: 20,
-  },
-  completeTitle: {
-    color: "#1A202C",
-    fontSize: 22,
-    fontWeight: "800",
-  },
-  completeText: {
-    color: "#35507E",
-    fontWeight: "600",
-  },
-  saveStatusText: {
-    color: "#35507E",
-    textAlign: "center",
-    lineHeight: 20,
-    fontWeight: "600",
-  },
-  infoCard: {
-    marginTop: 4,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#D6E4FF",
-    backgroundColor: "#F4F8FF",
-    padding: 10,
-    gap: 4,
-  },
-  infoTitle: {
-    color: "#2E4A86",
-    fontSize: 12,
-    fontWeight: "800",
-    textTransform: "uppercase",
-    letterSpacing: 0.3,
-  },
-  infoText: {
-    color: "#1A202C",
-    lineHeight: 20,
-    fontWeight: "600",
-  },
-  postActionsRow: {
-    flexDirection: "row",
-    gap: 8,
-    flexWrap: "wrap",
-  },
-  secondaryActionBtn: {
-    backgroundColor: "#EEF4FF",
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderWidth: 1,
-    borderColor: "#D6E4FF",
-  },
-  secondaryActionText: {
-    color: "#2E4A86",
-    fontWeight: "700",
-    fontSize: 12,
-  },
-  nextButton: {
-    alignSelf: "stretch",
-    alignItems: "center",
-  },
-});
+const createQuizStyles = (isDark: boolean) =>
+  StyleSheet.create({
+    screen: {
+      flex: 1,
+      backgroundColor: isDark ? "#08111F" : "#FFFFFF",
+    },
+    screenContent: {
+      paddingHorizontal: 18,
+      paddingTop: 36,
+      paddingBottom: 28,
+      gap: 14,
+    },
+    screenCenter: {
+      flex: 1,
+      backgroundColor: isDark ? "#08111F" : "#FFFFFF",
+      justifyContent: "center",
+      alignItems: "center",
+      paddingHorizontal: 24,
+      gap: 12,
+    },
+    headerRow: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+    },
+    progressText: {
+      color: isDark ? "#F4F7FB" : "#1A202C",
+      fontWeight: "700",
+    },
+    timerPill: {
+      backgroundColor: "#0B5FFF",
+      borderRadius: 999,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+    },
+    timerUrgent: {
+      backgroundColor: COLORS.error,
+    },
+    timerText: {
+      color: "white",
+      fontWeight: "700",
+    },
+    questionType: {
+      alignSelf: "flex-start",
+      backgroundColor: isDark ? "#1A2F4F" : "#E7F0FF",
+      color: isDark ? "#78A5FF" : "#0B5FFF",
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      borderRadius: 999,
+      fontWeight: "700",
+      fontSize: 12,
+    },
+    questionText: {
+      fontSize: 20,
+      fontWeight: "800",
+      color: isDark ? "#F4F7FB" : "#1A202C",
+      lineHeight: 28,
+    },
+    hintBox: {
+      backgroundColor: isDark ? "#2A2410" : "#FEF8E7",
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: isDark ? "#6B5A2E" : "#F3D27A",
+      padding: 12,
+    },
+    hintTitle: {
+      color: isDark ? "#E8D48A" : "#8A6418",
+      fontSize: 12,
+      fontWeight: "800",
+      textTransform: "uppercase",
+      letterSpacing: 0.3,
+      marginBottom: 6,
+    },
+    hintText: {
+      color: isDark ? "#D4C48A" : "#5D430B",
+      fontWeight: "600",
+      lineHeight: 20,
+    },
+    optionList: {
+      gap: 10,
+    },
+    optionButton: {
+      backgroundColor: isDark ? "#121C2E" : "white",
+      borderWidth: 1,
+      borderColor: isDark ? "#2E4368" : "#D6E4FF",
+      borderRadius: 14,
+      paddingHorizontal: 12,
+      paddingVertical: 14,
+    },
+    optionRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+    },
+    optionLetterBadge: {
+      width: 28,
+      height: 28,
+      borderRadius: 14,
+      backgroundColor: isDark ? "#1A2F4F" : "#EEF4FF",
+      borderWidth: 1,
+      borderColor: isDark ? "#2E4368" : "#D6E4FF",
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    optionLetterText: {
+      color: isDark ? "#B8D4FF" : "#2E4A86",
+      fontWeight: "800",
+      fontSize: 12,
+    },
+    optionText: {
+      flex: 1,
+      color: isDark ? "#F4F7FB" : "#1A202C",
+      fontWeight: "700",
+    },
+    shortWrap: {
+      gap: 10,
+    },
+    input: {
+      minHeight: 110,
+      backgroundColor: isDark ? "#121C2E" : "white",
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: isDark ? "#2E4368" : "#D6E4FF",
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      color: isDark ? "#F4F7FB" : COLORS.text,
+      textAlignVertical: "top",
+    },
+    primaryButton: {
+      alignSelf: "flex-start",
+      backgroundColor: "#0B5FFF",
+      borderRadius: 14,
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+    },
+    primaryButtonText: {
+      color: "white",
+      fontWeight: "700",
+    },
+    disabledButton: {
+      opacity: 0.55,
+    },
+    gradingRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+    },
+    gradingText: {
+      color: isDark ? "#9FB2D6" : "#35507E",
+      fontWeight: "600",
+    },
+    feedbackBox: {
+      borderRadius: 14,
+      borderWidth: 1,
+      padding: 12,
+      gap: 8,
+    },
+    correctBox: {
+      borderColor: isDark ? "#2D6B45" : "#9BE2B7",
+      backgroundColor: isDark ? "#12301F" : "#ECFFF4",
+    },
+    wrongBox: {
+      borderColor: isDark ? "#6B2D2D" : "#F3A8A8",
+      backgroundColor: isDark ? "#2A1A1A" : "#FFF0F0",
+    },
+    feedbackTitle: {
+      fontWeight: "800",
+    },
+    correctText: {
+      color: isDark ? "#86EFAC" : "#0C8E46",
+    },
+    wrongText: {
+      color: isDark ? "#FCA5A5" : COLORS.error,
+    },
+    feedbackText: {
+      color: isDark ? "#EAF1FF" : "#1A202C",
+      lineHeight: 20,
+    },
+    emptyTitle: {
+      color: isDark ? "#F4F7FB" : "#1A202C",
+      fontSize: 18,
+      fontWeight: "800",
+    },
+    errorText: {
+      color: isDark ? "#FCA5A5" : COLORS.error,
+      textAlign: "center",
+      fontWeight: "600",
+      lineHeight: 20,
+    },
+    completeTitle: {
+      color: isDark ? "#F4F7FB" : "#1A202C",
+      fontSize: 22,
+      fontWeight: "800",
+    },
+    completeText: {
+      color: isDark ? "#9FB2D6" : "#35507E",
+      fontWeight: "600",
+    },
+    saveStatusText: {
+      color: isDark ? "#9FB2D6" : "#35507E",
+      textAlign: "center",
+      lineHeight: 20,
+      fontWeight: "600",
+    },
+    infoCard: {
+      marginTop: 4,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: isDark ? "#2E4368" : "#D6E4FF",
+      backgroundColor: isDark ? "#121C2E" : "#F4F8FF",
+      padding: 10,
+      gap: 4,
+    },
+    infoTitle: {
+      color: isDark ? "#B8D4FF" : "#2E4A86",
+      fontSize: 12,
+      fontWeight: "800",
+      textTransform: "uppercase",
+      letterSpacing: 0.3,
+    },
+    infoText: {
+      color: isDark ? "#EAF1FF" : "#1A202C",
+      lineHeight: 20,
+      fontWeight: "600",
+    },
+    postActionsRow: {
+      flexDirection: "row",
+      gap: 8,
+      flexWrap: "wrap",
+    },
+    secondaryActionBtn: {
+      backgroundColor: isDark ? "#1A2F4F" : "#EEF4FF",
+      borderRadius: 12,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      borderWidth: 1,
+      borderColor: isDark ? "#2E4368" : "#D6E4FF",
+    },
+    secondaryActionText: {
+      color: isDark ? "#B8D4FF" : "#2E4A86",
+      fontWeight: "700",
+      fontSize: 12,
+    },
+    nextButton: {
+      alignSelf: "stretch",
+      alignItems: "center",
+    },
+  });

@@ -27,12 +27,15 @@ import {
   fetchAllArLabResources,
   type LabCanvasResource,
 } from "../../../shared/services/lab";
-import {
-  redeemLabBonusUnlock,
-  mapBackendProfileToStudentProfile,
-} from "../../../shared/services/auth-service";
-import { updateStudentProfile } from "../../../shared/store/user-store";
 import { setArTopics, type ArTopic } from "../../../shared/services/ar-service";
+import {
+  getCurrentPlan,
+} from "../../../shared/services/subscription-service";
+import {
+  getStudentAccessStatus,
+  peekStudentAccessStatus,
+  type StudentAccessStatus,
+} from "../../../shared/services/student-access-service";
 
 type SubjectKey = "biology" | "chemistry" | "physics" | "math";
 
@@ -97,6 +100,15 @@ export default function LabListingComponent() {
       : appSettings.themeMode === "dark";
   const { language } = useTranslation();
   const isOm = language === "om";
+  
+  const [accessStatus, setAccessStatus] = useState<StudentAccessStatus | null>(
+    () => peekStudentAccessStatus(),
+  );
+  const [currentPlan, setCurrentPlan] = useState<any>(null);
+  const [loadingSubscription, setLoadingSubscription] = useState(
+    () => !peekStudentAccessStatus(),
+  );
+
   const copy = {
     badge: isOm ? "Labooraatorii Mataduree" : "Lab by Subject",
     title: isOm ? "Labooraatorii Dijitaalaa" : "Virtual Lab",
@@ -130,20 +142,26 @@ export default function LabListingComponent() {
     freeLabel: isOm ? "Bilisa" : "Free",
     proLabel: isOm ? "Subscription" : "Subscription",
     lockMessage: isOm
-      ? "Akkawuntiin kee hin subscribe ta'in jira. Mataduree hunda keessaa AR tokko fi Canvas tokko bilisa fayyadamuu dandeessa. Hafeef subscription barbaachisa."
-      : "Your account is not subscribed yet. You can use one free AR model and one free Canvas model per subject. The rest require subscription.",
-    freeNotice: isOm
-      ? "Akkawuntii hin subscribe taaneef: mataduree hunda keessaa Canvas 1 fi AR 1 bilisa. XP 2000 ol yoo qabaatte, 'Redeem' jedhu tuqi; XP ni zero'a, Canvas fi AR dabalataa ni bani. Subscribe gochuun immoo hundumaa ni banu."
-      : "For unsubscribed accounts: 1 free Canvas + 1 free AR in each subject. If XP is 2000 or more, tap Redeem to spend it, reset XP to zero, and unlock extra Canvas and AR access. Subscribe to unlock everything.",
-    redeemBonus: isOm ? "XP laattu banuu" : "Redeem XP bonus",
-    redeemingBonus: isOm ? "XP banuu irratti..." : "Redeeming XP...",
+      ? "Yaalii bilisaa guyyaa 7 xumurame. Canvas fi AR hunda banuuf subscribe godhi."
+      : "Your 7-day free trial has ended. Subscribe to unlock all Canvas and AR models.",
+    trialActive: isOm ? "Yaalii bilisa hojii irra" : "Free trial active",
+    trialDaysLeft: isOm ? "guyyaa Canvas & AR irratti hafe" : "day(s) left for Canvas & AR",
+    trialEnded: isOm ? "Yaalii xumurame — subscribe godhi" : "Trial ended — subscribe to continue",
+    loadingSubscription: isOm ? "Haala subscription fe'amaa..." : "Loading subscription status...",
   };
+
+  const isSubscribed = accessStatus?.isSubscribed === true;
+  const isOnTrial = accessStatus?.isOnTrial === true;
+  const hasLabAccess = accessStatus?.hasLabAccess === true;
+  const trialDaysLeft = accessStatus?.trialDaysLeft ?? 0;
+  
   const subjectLabel = (subject: SubjectKey) => {
     if (subject === "biology") return isOm ? "Baayoloojii" : "Biology";
     if (subject === "chemistry") return isOm ? "Keemistirii" : "Chemistry";
     if (subject === "physics") return isOm ? "Fiiziksii" : "Physics";
     return isOm ? "Herrega" : "Math";
   };
+  
   const [canvasResources, setCanvasResources] = useState<LabItem[]>([]);
   const [arTopics, setArTopicsState] = useState<ArTopic[]>([]);
   const [isLoadingCanvas, setIsLoadingCanvas] = useState(true);
@@ -157,6 +175,43 @@ export default function LabListingComponent() {
     String(studentProfile.grade || ""),
     10,
   );
+
+  // Load subscription status
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadSubscription = async () => {
+      const cached = peekStudentAccessStatus();
+      if (cached) {
+        setAccessStatus(cached);
+        setLoadingSubscription(false);
+      }
+      try {
+        const [access, plan] = await Promise.all([
+          getStudentAccessStatus(),
+          getCurrentPlan(),
+        ]);
+        if (isMounted) {
+          setAccessStatus(access);
+          setCurrentPlan(plan);
+        }
+      } catch (error) {
+        console.error("Failed to load subscription:", error);
+        if (isMounted) {
+          setAccessStatus(null);
+        }
+      } finally {
+        if (isMounted) {
+          setLoadingSubscription(false);
+        }
+      }
+    };
+
+    loadSubscription();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -304,46 +359,9 @@ export default function LabListingComponent() {
       )
     : (activeSection?.arItems ?? []);
 
-  const isSubscribed = studentProfile.isSubscribed === true;
-  const hasRedeemedLabBonus = studentProfile.labBonusUnlock === true;
-  const hasBonusXpAccess =
-    (studentProfile.xp ?? 0) >= 2000 && !hasRedeemedLabBonus;
+  const isCanvasLocked = () => !hasLabAccess;
 
-  const freeAccess = useMemo(() => {
-    const freeCanvasIds = new Set<string>();
-    const freeArIds = new Set<string>();
-
-    for (const section of sections) {
-      if (section.canvasItems[0]?.id) {
-        freeCanvasIds.add(section.canvasItems[0].id);
-      }
-      if (section.arItems[0]?.id) {
-        freeArIds.add(section.arItems[0].id);
-      }
-    }
-
-    const bonusCanvas = sections
-      .flatMap((section) => section.canvasItems)
-      .find((item) => !freeCanvasIds.has(item.id));
-    const bonusAr = sections
-      .flatMap((section) => section.arItems)
-      .find((item) => !freeArIds.has(item.id));
-
-    if (hasRedeemedLabBonus && bonusCanvas) {
-      freeCanvasIds.add(bonusCanvas.id);
-    }
-    if (hasRedeemedLabBonus && bonusAr) {
-      freeArIds.add(bonusAr.id);
-    }
-
-    return { freeCanvasIds, freeArIds };
-  }, [hasRedeemedLabBonus, sections]);
-
-  const isCanvasLocked = (itemId: string) =>
-    !isSubscribed && !freeAccess.freeCanvasIds.has(itemId);
-
-  const isArLocked = (itemId: string) =>
-    !isSubscribed && !freeAccess.freeArIds.has(itemId);
+  const isArLocked = () => !hasLabAccess;
 
   const overviewStats = [
     {
@@ -375,19 +393,26 @@ export default function LabListingComponent() {
   };
 
   const showLockedMessage = () => {
-    Alert.alert(copy.lockedFeature, copy.lockMessage, [{ text: "OK" }]);
+    Alert.alert(copy.lockedFeature, copy.lockMessage, [
+      { text: "OK" },
+      {
+        text: isOm ? "Subscribe" : "Subscribe",
+        onPress: () => router.push("/(tabs)/settings"),
+      },
+    ]);
   };
 
-  const handleRedeemLabBonus = async () => {
-    try {
-      const backendProfile = await redeemLabBonusUnlock();
-      updateStudentProfile(mapBackendProfileToStudentProfile(backendProfile));
-      Alert.alert(copy.lockedFeature, copy.redeemBonus);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : copy.lockMessage;
-      Alert.alert(copy.lockedFeature, message);
-    }
-  };
+  // Loading state
+  if (loadingSubscription) {
+    return (
+      <View style={[styles.loadingContainer, { backgroundColor: isDark ? "#08111F" : "#FFFFFF" }]}>
+        <ActivityIndicator size="large" color={HOME_PRIMARY} />
+        <Text style={[styles.loadingText, { color: isDark ? "#AAB7CF" : "#5A6C87" }]}>
+          {copy.loadingSubscription}
+        </Text>
+      </View>
+    );
+  }
 
   return (
     <View
@@ -642,37 +667,71 @@ export default function LabListingComponent() {
             })}
           </View>
 
-          {!isSubscribed ? (
+          {/* Show subscription badge */}
+          {isSubscribed ? (
             <View
               style={[
-                styles.freeNoticeCard,
+                styles.subscriptionBadge,
                 {
-                  backgroundColor: isDark ? "#121C2E" : "#F5F8FF",
-                  borderColor: isDark ? "#2E4368" : "#D6E4FF",
+                  backgroundColor: isDark ? "#121C2E" : "#E7F0FF",
+                  borderColor: isDark ? "#2E4368" : "#D4E3FA",
                 },
               ]}
             >
-              <Ionicons name="lock-closed-outline" size={14} color="#0B5FFF" />
+              <Ionicons name="diamond-outline" size={14} color={HOME_PRIMARY} />
               <Text
                 style={[
-                  styles.freeNoticeText,
-                  { color: isDark ? "#BFD6FF" : "#35507E" },
+                  styles.subscriptionBadgeText,
+                  { color: HOME_PRIMARY },
                 ]}
               >
-                {copy.freeNotice}
+                {currentPlan?.name || "Premium"} • {isOm ? "Hundumaa banaa" : "Full Access"}
               </Text>
             </View>
           ) : null}
 
-          {hasBonusXpAccess ? (
-            <TouchableOpacity
-              style={styles.redeemButton}
-              onPress={() => void handleRedeemLabBonus()}
-              activeOpacity={0.9}
+          {isOnTrial ? (
+            <View
+              style={[
+                styles.freeNoticeCard,
+                {
+                  backgroundColor: isDark ? "#0E2240" : "#EAF2FF",
+                  borderColor: isDark ? "#1E4A8C" : "#B8D4FF",
+                },
+              ]}
             >
-              <Ionicons name="sparkles-outline" size={14} color="#FFFFFF" />
-              <Text style={styles.redeemButtonText}>{copy.redeemBonus}</Text>
-            </TouchableOpacity>
+              <Ionicons name="time-outline" size={14} color={HOME_PRIMARY} />
+              <Text
+                style={[
+                  styles.freeNoticeText,
+                  { color: isDark ? "#B8D4FF" : "#0045B0" },
+                ]}
+              >
+                {copy.trialActive}: {trialDaysLeft} {copy.trialDaysLeft}
+              </Text>
+            </View>
+          ) : null}
+
+          {accessStatus?.trialExpired ? (
+            <View
+              style={[
+                styles.freeNoticeCard,
+                {
+                  backgroundColor: isDark ? "#2A1A1A" : "#FFF5F5",
+                  borderColor: isDark ? "#6B2D2D" : "#FECACA",
+                },
+              ]}
+            >
+              <Ionicons name="lock-closed-outline" size={14} color="#DC2626" />
+              <Text
+                style={[
+                  styles.freeNoticeText,
+                  { color: isDark ? "#FCA5A5" : "#991B1B" },
+                ]}
+              >
+                {copy.trialEnded}
+              </Text>
+            </View>
           ) : null}
 
           {availableChapters.length === 0 ? (
@@ -737,7 +796,7 @@ export default function LabListingComponent() {
               <View style={styles.modelBlock}>
                 {filteredCanvas.map((item) =>
                   (() => {
-                    const locked = isCanvasLocked(item.id);
+                    const locked = isCanvasLocked();
                     const freeItem = !locked && !isSubscribed;
                     return (
                       <TouchableOpacity
@@ -857,7 +916,7 @@ export default function LabListingComponent() {
             <View style={styles.arStack}>
               {filteredAr.map((topic) =>
                 (() => {
-                  const locked = isArLocked(topic.id);
+                  const locked = isArLocked();
                   const freeItem = !locked && !isSubscribed;
                   return (
                     <TouchableOpacity
@@ -1060,6 +1119,16 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#FFFFFF",
     overflow: "hidden",
+  },
+  loadingContainer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+  },
+  loadingText: {
+    fontSize: 14,
+    fontWeight: "600",
   },
   bgGlowBlue: {
     position: "absolute",
@@ -1387,6 +1456,20 @@ const styles = StyleSheet.create({
   },
   modeToggleTextActive: {
     color: "#FFFFFF",
+  },
+  subscriptionBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  subscriptionBadgeText: {
+    fontSize: 12,
+    fontWeight: "700",
   },
   freeNoticeCard: {
     borderWidth: 1,

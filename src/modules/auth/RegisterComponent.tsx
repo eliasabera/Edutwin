@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Link, useRouter } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Image,
@@ -9,6 +9,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  StatusBar,
   StyleSheet,
   Text,
   TextInput,
@@ -26,15 +27,11 @@ import {
   uploadStudentPhoto,
 } from "../../../shared/services/auth-service";
 import { updateStudentProfile } from "../../../shared/store/user-store";
-
-const AUTH_COLORS = {
-  background: "#FFFFFF",
-  surface: "#FFFFFF",
-  text: "#102445",
-  textLight: "#6D84AA",
-  primary: "#0056D2",
-  error: "#DC3545",
-};
+import {
+  type AuthScreenColors,
+  useAuthIsDark,
+  useAuthScreenColors,
+} from "../../../shared/constants/auth-screen-theme";
 
 const MIN_PASSWORD_LENGTH = 8;
 const DEFAULT_TWIN_AVATAR_URI = TWIN_CARTOON_AVATARS[0];
@@ -90,7 +87,7 @@ const COPY: Record<
 > = {
   en: {
     title: "Create Account",
-    subtitle: "Join EduTwin and start learning smarter.",
+    subtitle: "",
     fullNamePlaceholder: "Full Name",
     phonePlaceholder: "Phone Number (optional)",
     emailPlaceholder: "Email Address",
@@ -134,7 +131,7 @@ const COPY: Record<
   },
   om: {
     title: "Akaawuntii Uumi",
-    subtitle: "EduTwinitti makamiitii haala salphaan baradhu.",
+    subtitle: "",
     fullNamePlaceholder: "Maqaa Guutuu",
     phonePlaceholder: "Lakkoofsa Bilbilaa (filannoo)",
     emailPlaceholder: "Teessoo Imeelii",
@@ -179,8 +176,236 @@ const COPY: Record<
   },
 };
 
+const createStyles = (colors: AuthScreenColors) =>
+  StyleSheet.create({
+    safeArea: {
+      flex: 1,
+      backgroundColor: colors.surface,
+    },
+    keyboardAvoiding: {
+      flex: 1,
+    },
+    container: {
+      flexGrow: 1,
+      backgroundColor: colors.surface,
+      padding: 24,
+      paddingBottom: 40,
+    },
+    header: { marginBottom: 30 },
+    title: {
+      fontSize: 32,
+      fontWeight: "bold",
+      color: colors.primary,
+      marginBottom: 8,
+    },
+    subtitle: { fontSize: 16, color: colors.textLight },
+    form: { gap: 16 },
+    inputContainer: {
+      flexDirection: "row",
+      alignItems: "center",
+      backgroundColor: colors.inputBg,
+      borderWidth: 1,
+      borderColor: colors.inputBorder,
+      borderRadius: 12,
+      paddingHorizontal: 16,
+      height: 56,
+    },
+    dropdownTrigger: {
+      flexDirection: "row",
+      alignItems: "center",
+      backgroundColor: colors.inputBg,
+      borderWidth: 1,
+      borderColor: colors.inputBorder,
+      borderRadius: 12,
+      paddingHorizontal: 16,
+      height: 56,
+    },
+    dropdownTriggerText: {
+      flex: 1,
+      fontSize: 16,
+      color: colors.text,
+    },
+    dropdownPlaceholderText: {
+      color: colors.textLight,
+    },
+    dropdownList: {
+      marginTop: 8,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: colors.dropdownBorder,
+      backgroundColor: colors.dropdownListBg,
+      overflow: "hidden",
+    },
+    dropdownItem: {
+      paddingVertical: 12,
+      paddingHorizontal: 14,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.dropdownItemBorder,
+    },
+    dropdownItemActive: {
+      backgroundColor: colors.dropdownItemActiveBg,
+    },
+    dropdownItemText: {
+      color: colors.text,
+      fontSize: 15,
+      fontWeight: "500",
+    },
+    dropdownItemTextActive: {
+      color: colors.primary,
+      fontWeight: "700",
+    },
+    languageRow: {
+      flexDirection: "row",
+      gap: 10,
+    },
+    schoolTypeRow: {
+      flexDirection: "row",
+      gap: 10,
+    },
+    schoolTypeChip: {
+      flex: 1,
+      minHeight: 44,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: colors.chipBorder,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.chipBg,
+      paddingHorizontal: 12,
+    },
+    schoolTypeChipActive: {
+      borderColor: colors.primary,
+      backgroundColor: colors.chipActiveBg,
+    },
+    schoolTypeChipText: {
+      color: colors.textLight,
+      fontWeight: "600",
+      textAlign: "center",
+    },
+    schoolTypeChipTextActive: {
+      color: colors.primary,
+    },
+    schoolTypeHint: {
+      color: colors.textLight,
+      fontSize: 12,
+      marginTop: 6,
+    },
+    languageChip: {
+      flex: 1,
+      height: 44,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: colors.chipBorder,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.chipBg,
+    },
+    languageChipActive: {
+      borderColor: colors.primary,
+      backgroundColor: colors.chipActiveBg,
+    },
+    languageChipText: {
+      color: colors.textLight,
+      fontWeight: "600",
+    },
+    languageChipTextActive: {
+      color: colors.primary,
+    },
+    avatarSection: {
+      marginTop: -2,
+    },
+    avatarSectionTitle: {
+      color: colors.text,
+      fontSize: 13,
+      fontWeight: "700",
+      marginBottom: 4,
+    },
+    avatarSectionHint: {
+      color: colors.textLight,
+      fontSize: 13,
+      marginBottom: 8,
+    },
+    photoPickerRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+    },
+    photoPreview: {
+      width: 64,
+      height: 64,
+      borderRadius: 32,
+      borderWidth: 1,
+      borderColor: colors.inputBorder,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.photoPreviewBg,
+      overflow: "hidden",
+    },
+    photoPreviewImage: {
+      width: "100%",
+      height: "100%",
+    },
+    photoPickerButton: {
+      height: 44,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: colors.primary,
+      paddingHorizontal: 14,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.photoPickerBg,
+    },
+    photoPickerButtonText: {
+      color: colors.primary,
+      fontWeight: "700",
+      fontSize: 14,
+    },
+    icon: { marginRight: 12 },
+    input: { flex: 1, fontSize: 16, color: colors.text },
+    visibilityToggle: {
+      marginLeft: 10,
+      padding: 2,
+    },
+    errorText: {
+      color: colors.error,
+      fontSize: 13,
+    },
+    termsRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+      marginTop: 2,
+    },
+    termsText: {
+      flex: 1,
+      color: colors.text,
+      fontSize: 13,
+      lineHeight: 18,
+    },
+    btnPrimary: {
+      backgroundColor: colors.primary,
+      height: 56,
+      borderRadius: 16,
+      justifyContent: "center",
+      alignItems: "center",
+      marginTop: 10,
+      shadowColor: colors.primary,
+      shadowOpacity: 0.3,
+      shadowRadius: 10,
+      elevation: 5,
+    },
+    btnDisabled: { opacity: 0.7 },
+    btnText: { color: "white", fontSize: 18, fontWeight: "600" },
+    footer: { flexDirection: "row", justifyContent: "center", marginTop: 30 },
+    footerText: { color: colors.textLight, fontSize: 16 },
+    link: { color: colors.primary, fontSize: 16, fontWeight: "bold" },
+  });
+
 export default function RegisterComponent() {
   const router = useRouter();
+  const colors = useAuthScreenColors();
+  const isDark = useAuthIsDark();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const scrollRef = useRef<ScrollView | null>(null);
   const [language, setLanguage] = useState<AppLanguage>("en");
 
@@ -429,6 +654,10 @@ export default function RegisterComponent() {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
+      <StatusBar
+        barStyle={isDark ? "light-content" : "dark-content"}
+        backgroundColor={colors.surface}
+      />
       <KeyboardAvoidingView
         style={styles.keyboardAvoiding}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
@@ -444,7 +673,9 @@ export default function RegisterComponent() {
           >
             <View style={styles.header}>
               <Text style={styles.title}>{copy.title}</Text>
-              <Text style={styles.subtitle}>{copy.subtitle}</Text>
+              {copy.subtitle ? (
+                <Text style={styles.subtitle}>{copy.subtitle}</Text>
+              ) : null}
             </View>
 
             <View style={styles.form}>
@@ -452,11 +683,12 @@ export default function RegisterComponent() {
                 <Ionicons
                   name="person-outline"
                   size={20}
-                  color={AUTH_COLORS.textLight}
+                  color={colors.textLight}
                   style={styles.icon}
                 />
                 <TextInput
                   placeholder={copy.fullNamePlaceholder}
+                  placeholderTextColor={colors.placeholder}
                   value={fullName}
                   onChangeText={setFullName}
                   style={styles.input}
@@ -475,7 +707,7 @@ export default function RegisterComponent() {
                   <Ionicons
                     name="school-outline"
                     size={20}
-                    color={AUTH_COLORS.textLight}
+                    color={colors.textLight}
                     style={styles.icon}
                   />
                   <Text style={styles.dropdownTriggerText}>
@@ -486,7 +718,7 @@ export default function RegisterComponent() {
                       activeDropdown === "grade" ? "chevron-up" : "chevron-down"
                     }
                     size={18}
-                    color={AUTH_COLORS.textLight}
+                    color={colors.textLight}
                   />
                 </TouchableOpacity>
 
@@ -523,11 +755,12 @@ export default function RegisterComponent() {
                 <Ionicons
                   name="call-outline"
                   size={20}
-                  color={AUTH_COLORS.textLight}
+                  color={colors.textLight}
                   style={styles.icon}
                 />
                 <TextInput
                   placeholder={copy.phonePlaceholder}
+                  placeholderTextColor={colors.placeholder}
                   value={phoneNumber}
                   onChangeText={setPhoneNumber}
                   keyboardType="phone-pad"
@@ -595,7 +828,7 @@ export default function RegisterComponent() {
                     <Ionicons
                       name="business-outline"
                       size={20}
-                      color={AUTH_COLORS.textLight}
+                      color={colors.textLight}
                       style={styles.icon}
                     />
                     <Text
@@ -614,7 +847,7 @@ export default function RegisterComponent() {
                           : "chevron-down"
                       }
                       size={18}
-                      color={AUTH_COLORS.textLight}
+                      color={colors.textLight}
                     />
                   </TouchableOpacity>
 
@@ -671,7 +904,7 @@ export default function RegisterComponent() {
                     <Ionicons
                       name="layers-outline"
                       size={20}
-                      color={AUTH_COLORS.textLight}
+                      color={colors.textLight}
                       style={styles.icon}
                     />
                     <Text
@@ -691,7 +924,7 @@ export default function RegisterComponent() {
                           : "chevron-down"
                       }
                       size={18}
-                      color={AUTH_COLORS.textLight}
+                      color={colors.textLight}
                     />
                   </TouchableOpacity>
 
@@ -778,7 +1011,7 @@ export default function RegisterComponent() {
                       <Ionicons
                         name="person-circle-outline"
                         size={48}
-                        color={AUTH_COLORS.textLight}
+                        color={colors.textLight}
                       />
                     )}
                   </View>
@@ -799,11 +1032,12 @@ export default function RegisterComponent() {
                 <Ionicons
                   name="mail-outline"
                   size={20}
-                  color={AUTH_COLORS.textLight}
+                  color={colors.textLight}
                   style={styles.icon}
                 />
                 <TextInput
                   placeholder={copy.emailPlaceholder}
+                  placeholderTextColor={colors.placeholder}
                   value={email}
                   onChangeText={setEmail}
                   autoCapitalize="none"
@@ -817,11 +1051,12 @@ export default function RegisterComponent() {
                 <Ionicons
                   name="lock-closed-outline"
                   size={20}
-                  color={AUTH_COLORS.textLight}
+                  color={colors.textLight}
                   style={styles.icon}
                 />
                 <TextInput
                   placeholder={copy.passwordPlaceholder}
+                  placeholderTextColor={colors.placeholder}
                   value={password}
                   onChangeText={setPassword}
                   secureTextEntry={!showPassword}
@@ -839,7 +1074,7 @@ export default function RegisterComponent() {
                   <Ionicons
                     name={showPassword ? "eye-off-outline" : "eye-outline"}
                     size={20}
-                    color={AUTH_COLORS.textLight}
+                    color={colors.textLight}
                   />
                 </TouchableOpacity>
               </View>
@@ -848,11 +1083,12 @@ export default function RegisterComponent() {
                 <Ionicons
                   name="shield-checkmark-outline"
                   size={20}
-                  color={AUTH_COLORS.textLight}
+                  color={colors.textLight}
                   style={styles.icon}
                 />
                 <TextInput
                   placeholder={copy.confirmPasswordPlaceholder}
+                  placeholderTextColor={colors.placeholder}
                   value={confirmPassword}
                   onChangeText={setConfirmPassword}
                   secureTextEntry={!showConfirmPassword}
@@ -872,7 +1108,7 @@ export default function RegisterComponent() {
                       showConfirmPassword ? "eye-off-outline" : "eye-outline"
                     }
                     size={20}
-                    color={AUTH_COLORS.textLight}
+                    color={colors.textLight}
                   />
                 </TouchableOpacity>
               </View>
@@ -886,7 +1122,7 @@ export default function RegisterComponent() {
                   name={acceptedTerms ? "checkbox-outline" : "square-outline"}
                   size={22}
                   color={
-                    acceptedTerms ? AUTH_COLORS.primary : AUTH_COLORS.textLight
+                    acceptedTerms ? colors.primary : colors.textLight
                   }
                 />
                 <Text style={styles.termsText}>{copy.termsLabel}</Text>
@@ -922,226 +1158,3 @@ export default function RegisterComponent() {
   );
 }
 
-const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: AUTH_COLORS.surface,
-  },
-  keyboardAvoiding: {
-    flex: 1,
-  },
-  container: {
-    flexGrow: 1,
-    backgroundColor: AUTH_COLORS.surface,
-    padding: 24,
-    paddingBottom: 40,
-  },
-  header: { marginBottom: 30 },
-  title: {
-    fontSize: 32,
-    fontWeight: "bold",
-    color: AUTH_COLORS.primary,
-    marginBottom: 8,
-  },
-  subtitle: { fontSize: 16, color: AUTH_COLORS.textLight },
-  form: { gap: 16 },
-  inputContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: AUTH_COLORS.background,
-    borderWidth: 1,
-    borderColor: "#D6DDEA",
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    height: 56,
-  },
-  dropdownTrigger: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: AUTH_COLORS.background,
-    borderWidth: 1,
-    borderColor: "#D6DDEA",
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    height: 56,
-  },
-  dropdownTriggerText: {
-    flex: 1,
-    fontSize: 16,
-    color: AUTH_COLORS.text,
-  },
-  dropdownPlaceholderText: {
-    color: AUTH_COLORS.textLight,
-  },
-  dropdownList: {
-    marginTop: 8,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#D9E0ED",
-    backgroundColor: AUTH_COLORS.surface,
-    overflow: "hidden",
-  },
-  dropdownItem: {
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: "#EEF2F8",
-  },
-  dropdownItemActive: {
-    backgroundColor: "#EAF2FF",
-  },
-  dropdownItemText: {
-    color: AUTH_COLORS.text,
-    fontSize: 15,
-    fontWeight: "500",
-  },
-  dropdownItemTextActive: {
-    color: AUTH_COLORS.primary,
-    fontWeight: "700",
-  },
-  languageRow: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  schoolTypeRow: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  schoolTypeChip: {
-    flex: 1,
-    minHeight: 44,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#D6DDEA",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: AUTH_COLORS.surface,
-    paddingHorizontal: 12,
-  },
-  schoolTypeChipActive: {
-    borderColor: AUTH_COLORS.primary,
-    backgroundColor: "#EAF2FF",
-  },
-  schoolTypeChipText: {
-    color: AUTH_COLORS.textLight,
-    fontWeight: "600",
-    textAlign: "center",
-  },
-  schoolTypeChipTextActive: {
-    color: AUTH_COLORS.primary,
-  },
-  schoolTypeHint: {
-    color: AUTH_COLORS.textLight,
-    fontSize: 12,
-    marginTop: 6,
-  },
-  languageChip: {
-    flex: 1,
-    height: 44,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#D6DDEA",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: AUTH_COLORS.surface,
-  },
-  languageChipActive: {
-    borderColor: AUTH_COLORS.primary,
-    backgroundColor: "#EAF2FF",
-  },
-  languageChipText: {
-    color: AUTH_COLORS.textLight,
-    fontWeight: "600",
-  },
-  languageChipTextActive: {
-    color: AUTH_COLORS.primary,
-  },
-  avatarSection: {
-    marginTop: -2,
-  },
-  avatarSectionTitle: {
-    color: AUTH_COLORS.text,
-    fontSize: 13,
-    fontWeight: "700",
-    marginBottom: 4,
-  },
-  avatarSectionHint: {
-    color: AUTH_COLORS.textLight,
-    fontSize: 13,
-    marginBottom: 8,
-  },
-  photoPickerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  photoPreview: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    borderWidth: 1,
-    borderColor: "#D6DDEA",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#F6F8FC",
-    overflow: "hidden",
-  },
-  photoPreviewImage: {
-    width: "100%",
-    height: "100%",
-  },
-  photoPickerButton: {
-    height: 44,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: AUTH_COLORS.primary,
-    paddingHorizontal: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#EAF2FF",
-  },
-  photoPickerButtonText: {
-    color: AUTH_COLORS.primary,
-    fontWeight: "700",
-    fontSize: 14,
-  },
-  icon: { marginRight: 12 },
-  input: { flex: 1, fontSize: 16, color: AUTH_COLORS.text },
-  visibilityToggle: {
-    marginLeft: 10,
-    padding: 2,
-  },
-  errorText: {
-    color: AUTH_COLORS.error,
-    fontSize: 13,
-  },
-  termsRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    marginTop: 2,
-  },
-  termsText: {
-    flex: 1,
-    color: AUTH_COLORS.text,
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  btnPrimary: {
-    backgroundColor: AUTH_COLORS.primary,
-    height: 56,
-    borderRadius: 16,
-    justifyContent: "center",
-    alignItems: "center",
-    marginTop: 10,
-    shadowColor: AUTH_COLORS.primary,
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    elevation: 5,
-  },
-  btnDisabled: { opacity: 0.7 },
-  btnText: { color: "white", fontSize: 18, fontWeight: "600" },
-  footer: { flexDirection: "row", justifyContent: "center", marginTop: 30 },
-  footerText: { color: AUTH_COLORS.textLight, fontSize: 16 },
-  link: { color: AUTH_COLORS.primary, fontSize: 16, fontWeight: "bold" },
-});

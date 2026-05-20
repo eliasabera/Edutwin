@@ -31,12 +31,13 @@ import {
 } from "react-native-safe-area-context";
 import { useHideSidebar } from "@/shared/store/ui-store";
 import { useTranslation } from "@/shared/i18n";
+import ProtectedAppShell from "@/src/components/ProtectedAppShell";
 
 SplashScreen.preventAutoHideAsync();
 
-const MENU_SIZE = 56;
-const ACTION_SIZE = 52;
-const MENU_MARGIN = 10;
+const MENU_SIZE = 51;
+const ACTION_SIZE = 46;
+const MENU_MARGIN = 9;
 
 export default function RootLayout() {
   return (
@@ -118,6 +119,11 @@ function RootLayoutContent() {
   }, [initialMenuY, menuPosition]);
 
   const sidebarActions = [
+    {
+      labelKey: "navigation.classChat",
+      path: "/classchat",
+      icon: "people-outline",
+    },
     {
       labelKey: "navigation.practice",
       path: "/(tabs)/practice-hub",
@@ -216,6 +222,7 @@ function RootLayoutContent() {
     "/profile",
     "/practice-hub",
     "/settings",
+    "/classchat",
   ];
   const showSidebar = shellRoutes.includes(pathname) && !hideSidebar;
   const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
@@ -252,13 +259,13 @@ function RootLayoutContent() {
   const availableRadius = Math.max(0, Math.min(directionalX, directionalY));
   const actionCount = sidebarActions.length;
   const arcMidDeg = (arcStartDeg + arcEndDeg) / 2;
-  const compactSpreadDeg = actionCount <= 1 ? 0 : actionCount === 2 ? 34 : 86;
+  const compactSpreadDeg = actionCount <= 1 ? 0 : actionCount === 2 ? 28 : 68;
   const effectiveArcStartDeg = arcMidDeg - compactSpreadDeg / 2;
   const effectiveArcEndDeg = arcMidDeg + compactSpreadDeg / 2;
   const radialRadius =
     actionCount <= 2
-      ? Math.max(74, Math.min(112, availableRadius))
-      : Math.max(88, Math.min(140, availableRadius));
+      ? Math.max(63, Math.min(94, availableRadius))
+      : Math.max(74, Math.min(116, availableRadius));
 
   useEffect(() => {
     async function prepare() {
@@ -295,20 +302,21 @@ function RootLayoutContent() {
   if (!appIsReady) return null;
 
   return (
-    <View
-      style={[styles.root, { backgroundColor: isDark ? "#08111F" : "#FFFFFF" }]}
-    >
-      <Stack
-        screenOptions={{
-          headerShown: false,
-          contentStyle: { backgroundColor: COLORS.background },
-        }}
+    <ProtectedAppShell>
+      <View
+        style={[styles.root, { backgroundColor: isDark ? "#08111F" : "#FFFFFF" }]}
       >
-        <Stack.Screen name="index" />
-        <Stack.Screen name="+not-found" options={{ title: "Oops!" }} />
-      </Stack>
+        <Stack
+          screenOptions={{
+            headerShown: false,
+            contentStyle: { backgroundColor: COLORS.background },
+          }}
+        >
+          <Stack.Screen name="index" />
+          <Stack.Screen name="+not-found" options={{ title: "Oops!" }} />
+        </Stack>
 
-      {showSidebar && (
+        {showSidebar && (
         <>
           {radialOpen && (
             <Pressable style={styles.backdrop} onPress={() => closeRadial()} />
@@ -377,7 +385,7 @@ function RootLayoutContent() {
                     <View style={styles.radialActionLabelWrap}>
                       <Ionicons
                         name={icon as "grid-outline"}
-                        size={18}
+                        size={17}
                         color={COLORS.primary}
                       />
                       <Text
@@ -409,19 +417,20 @@ function RootLayoutContent() {
             <TouchableOpacity
               style={styles.menuButtonTouch}
               activeOpacity={0.85}
-              hitSlop={{ top: 10, right: 10, bottom: 10, left: 10 }}
+              hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
               onPress={toggleRadial}
             >
               <Ionicons
                 name={radialOpen ? "close" : "menu"}
-                size={26}
+                size={24}
                 color="white"
               />
             </TouchableOpacity>
           </Animated.View>
         </>
-      )}
-    </View>
+        )}
+      </View>
+    </ProtectedAppShell>
   );
 }
 
@@ -488,15 +497,15 @@ const styles = StyleSheet.create({
   radialActionLabelWrap: {
     alignItems: "center",
     justifyContent: "center",
-    gap: 4,
+    gap: 2,
   },
   radialActionLabel: {
     position: "absolute",
-    top: ACTION_SIZE + 8,
-    width: 84,
+    top: ACTION_SIZE + 6,
+    width: 78,
     textAlign: "center",
     color: COLORS.white,
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "700",
   },
 });

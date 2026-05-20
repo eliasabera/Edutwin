@@ -29,7 +29,7 @@ const EN: TranslationTree = {
 	},
 	register: {
 		title: "Create Account",
-		subtitle: "Join EduTwin and start learning smarter.",
+		subtitle: "",
 		fullNamePlaceholder: "Full Name",
 		phonePlaceholder: "Phone Number (optional)",
 		emailPlaceholder: "Email Address",
@@ -59,6 +59,7 @@ const EN: TranslationTree = {
 		practice: "Practice",
 		tutor: "Tutor",
 		textbook: "Textbook",
+		classChat: "ClassChat",
 		profile: "Profile",
 		settings: "Settings",
 	},
@@ -167,6 +168,40 @@ const EN: TranslationTree = {
 		reviewAdvice: "We recommend reviewing Grade 8 Algebra before starting Grade 9 Math.",
 		goToHome: "Go to Home",
 	},
+	trial: {
+		active: "Free trial active",
+		daysLeft: "day(s) left for Canvas & AR",
+		ended: "Trial ended — subscribe to continue",
+		banner:
+			"7-day free trial: all Canvas and AR models are unlocked. Subscribe before the trial ends to keep access.",
+		lockMessage:
+			"Your 7-day free trial has ended. Subscribe to unlock all Canvas and AR models.",
+	},
+	classChat: {
+		subtitle: "Chat with classmates and teachers in your class",
+		classmate: "Classmate",
+		teacher: "Teacher",
+		openClassChat: "Open ClassChat",
+		classChatDescription:
+			"Message your class, share images, and stay connected with your teacher.",
+		conversation: "Conversation",
+		empty: "No messages yet. Start the conversation!",
+		placeholder: "Write a message...",
+		noClass: "No class assigned to your account yet.",
+		inputDisabled:
+			"Ask your teacher to enroll you in a class to start chatting.",
+		loadFailed: "Failed to load ClassChat",
+		sendFailed: "Failed to send message",
+		uploadFailed: "Failed to upload image",
+		viewMembers: "View members",
+		membersTitle: "Class members",
+		searchMembers: "Search members...",
+		teachers: "Teachers",
+		students: "Students",
+		noMembers: "No members found",
+		memberCount: ({ count }) =>
+			`${count} member${count === 1 ? "" : "s"}`,
+	},
 	practice: {
 		loadFailed: "Failed to load practice quiz.",
 		loadingQuiz: "Loading quiz...",
@@ -216,7 +251,7 @@ const OM: TranslationTree = {
 	},
 	register: {
 		title: "Herrega Uumi",
-		subtitle: "EduTwin irratti galmaa'i, barnoota jabaa jalqabi.",
+		subtitle: "",
 		fullNamePlaceholder: "Maqaa Guutuu",
 		phonePlaceholder: "Lakkoofsa Bilbilaa (filannoo)",
 		emailPlaceholder: "Teessoo Email",
@@ -246,6 +281,7 @@ const OM: TranslationTree = {
 		practice: "Shaakala",
 		tutor: "Gorsaa",
 		textbook: "Kitaaba",
+		classChat: "ClassChat",
 		profile: "Profaayilii",
 		settings: "Qindaa'ina",
 	},
@@ -353,6 +389,39 @@ const OM: TranslationTree = {
 		knowledgeProfile: "Faayila Beekumsaa",
 		reviewAdvice: "Math kutaa 9 jalqabuun dura Algebra kutaa 8 keessa deebi'uu gorfina.",
 		goToHome: "Gara Manaatti Deemi",
+	},
+	trial: {
+		active: "Yaalii bilisa hojii irra",
+		daysLeft: "guyyaa Canvas & AR irratti hafe",
+		ended: "Yaalii xumurame — subscribe godhi",
+		banner:
+			"Yaalii bilisaa guyyaa 7: Canvas fi AR hunda ni bana. Yaalii xumuraa dura subscribe godhi.",
+		lockMessage:
+			"Yaalii bilisaa guyyaa 7 xumurame. Canvas fi AR hunda banuuf subscribe godhi.",
+	},
+	classChat: {
+		subtitle: "Kutaa kee keessatti barattootaa fi barsiisota waliin haasofsiisi",
+		classmate: "Barataa",
+		teacher: "Barsiisaa",
+		openClassChat: "ClassChat Bani",
+		classChatDescription:
+			"Kutaa kee waliin ergaa ergi, suuraa qoodi, barsiisaa kee waliin wal qabsiisi.",
+		conversation: "Haasawa",
+		empty: "Ergaawwan hin jirre. Jalqabaa!",
+		placeholder: "Ergaa barreessi...",
+		noClass: "Kutaan siif hin qoodamne.",
+		inputDisabled:
+			"Haasofsiisuu jalqabuuf barsiisaan si kutaa keessatti galchuu qaba.",
+		loadFailed: "ClassChat fe'uun hin milkoofne",
+		sendFailed: "Ergaa erguun hin milkoofne",
+		uploadFailed: "Suuraa ol kaasuun hin milkoofne",
+		viewMembers: "Miseensota ilaali",
+		membersTitle: "Miseensonni kutaa",
+		searchMembers: "Miseensota barbaadi...",
+		teachers: "Barsiistota",
+		students: "Barattoota",
+		noMembers: "Miseensonni hin argamne",
+		memberCount: ({ count }) => `Miseensa ${count}`,
 	},
 	practice: {
 		loadFailed: "Qormaata shaakalaa fe'uun hin milkoofne.",

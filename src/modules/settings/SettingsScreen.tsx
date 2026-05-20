@@ -1,13 +1,11 @@
+// app/settings.tsx - Updated to use subscription service
 import { Ionicons } from "@expo/vector-icons";
-import Constants from "expo-constants";
-import * as WebBrowser from "expo-web-browser";
 import { useFocusEffect } from "@react-navigation/native";
 import { useRouter } from "expo-router";
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Linking,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -17,6 +15,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import * as WebBrowser from "expo-web-browser";
 import { useTranslation } from "@/shared/i18n";
 import {
   getAuthToken,
@@ -24,6 +23,7 @@ import {
   saveTermsPolicyAgreement,
   saveStudentProfile,
   setCachedStudentProfile,
+  getCurrentUser,
 } from "@/shared/services/auth-service";
 import { setPreferredLanguage } from "@/shared/store/language-store";
 import {
@@ -45,6 +45,27 @@ import {
   requestNotificationPermissionIfNeeded,
   syncNotificationSettings,
 } from "@/shared/services/notification-service";
+import {
+  initializeChapaPayment,
+  verifyChapaPayment,
+  hasActiveSubscription,
+  getUserSubscription,
+  getCurrentPlan,
+  getSubscriptionPlans,
+  getPendingTransactionRef,
+  clearPendingTransaction,
+} from "@/shared/services/subscription-service";
+import {
+  getStudentAccessStatus,
+  invalidateStudentAccessCache,
+  peekStudentAccessStatus,
+  type StudentAccessStatus,
+} from "@/shared/services/student-access-service";
+import {
+  applyForPublicBenefit,
+  getPublicBenefitEligibility,
+  type PublicBenefitEligibility,
+} from "@/shared/services/public-benefit-service";
 
 const LANGUAGE_OPTIONS = [
   { id: "en", labelKey: "settings.languageEnglish", icon: "🇬🇧" },
@@ -122,66 +143,7 @@ const SETTINGS_SECTIONS = [
   },
 ] as const;
 
-const extractHostFromExpo = () => {
-  const hostUri =
-    Constants.expoConfig?.hostUri ||
-    Constants.expoGoConfig?.developer?.tool ||
-    Constants.linkingUri;
-
-  if (!hostUri) return null;
-
-  const sanitized = String(hostUri)
-    .replace(/^https?:\/\//, "")
-    .replace(/^exp:\/\//, "")
-    .split("/")[0]
-    .trim();
-
-  if (!sanitized) return null;
-
-  const host = sanitized.includes(":")
-    ? sanitized.slice(0, sanitized.lastIndexOf(":"))
-    : sanitized;
-
-  return host || null;
-};
-
-const resolveApiHost = () => {
-  const explicitHost = process.env.EXPO_PUBLIC_NODE_API_HOST?.trim();
-  if (explicitHost) return explicitHost;
-
-  const expoHost = extractHostFromExpo();
-  if (expoHost) return expoHost;
-
-  return Platform.OS === "android" ? "10.0.2.2" : "localhost";
-};
-
-const API_HOST = resolveApiHost();
-const NODE_API_BASE_URL =
-  process.env.EXPO_PUBLIC_NODE_API_BASE_URL || `http://${API_HOST}:5000`;
-const PAYMENTS_SUBSCRIPTIONS_URL = `${NODE_API_BASE_URL}/api/payments/subscriptions`;
-const PAYMENTS_CHAPA_INITIALIZE_URL =
-  `${NODE_API_BASE_URL}/api/payments/chapa/initialize`;
-const PAYMENTS_CHAPA_VERIFY_URL = (txRef: string) =>
-  `${NODE_API_BASE_URL}/api/payments/chapa/verify/${encodeURIComponent(txRef)}`;
 const SUPPORT_EMAIL = "edutwin2@gmail.com";
-
-const readApiErrorMessage = async (response: Response, fallback: string) => {
-  try {
-    const payload = (await response.json()) as {
-      message?: string;
-      error?: string;
-    };
-    if (typeof payload?.message === "string" && payload.message.trim()) {
-      return payload.message;
-    }
-    if (typeof payload?.error === "string" && payload.error.trim()) {
-      return payload.error;
-    }
-  } catch {
-    // ignore non-json responses
-  }
-  return fallback;
-};
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
@@ -194,26 +156,46 @@ export default function SettingsScreen() {
     studentProfile.preferredLanguage || getAppSettings().preferredLanguage;
   const [isSavingLanguage, setIsSavingLanguage] = useState(false);
   const [isSubscriptionLoading, setIsSubscriptionLoading] = useState(false);
-  const [isSubscribingMonthly, setIsSubscribingMonthly] = useState(false);
-  const [isMonthlyActive, setIsMonthlyActive] = useState(false);
-  const [monthlyPlanEnd, setMonthlyPlanEnd] = useState<string | null>(null);
+  const [isSubscribingPlanId, setIsSubscribingPlanId] = useState<string | null>(null);
+  const [isSubscriptionActive, setIsSubscriptionActive] = useState(false);
+  const [accessStatus, setAccessStatus] = useState<StudentAccessStatus | null>(
+    () => peekStudentAccessStatus(),
+  );
+  const subscriptionLoadedRef = useRef(Boolean(peekStudentAccessStatus()));
+  const [publicBenefitEligibility, setPublicBenefitEligibility] =
+    useState<PublicBenefitEligibility | null>(null);
+  const [isApplyingPublicBenefit, setIsApplyingPublicBenefit] = useState(false);
+  const [currentPlanEnd, setCurrentPlanEnd] = useState<string | null>(null);
+  const [currentPlanName, setCurrentPlanName] = useState<string>("Free");
+  const [currentPlanId, setCurrentPlanId] = useState<string>("free");
+
+  const availablePlans = useMemo(
+    () => getSubscriptionPlans().filter((plan) => plan.id !== "free"),
+    [],
+  );
+  const monthlyPlan = availablePlans.find((plan) => plan.id === "premium_monthly");
+  const yearlyPlan = availablePlans.find((plan) => plan.id === "premium_yearly");
+
   const subscriptionCopy = useMemo(
     () =>
       currentLanguage === "om"
         ? {
             title: "Subscribshinii Barataa",
             subtitle:
-              "Pilaana ji'aa filachuun AI tutor, practice fi qabeenya barnootaa guutuu fayyadami.",
+              "Pilaana ji'aa ykn waggaa filachuun AI tutor, practice fi qabeenya barnootaa guutuu fayyadami.",
             monthlyPlan: "Pilaana Ji'aa",
+            yearlyPlan: "Pilaana Waggaa",
             monthlyPrice: "149 ETB / ji'a",
+            yearlyPrice: "1490 ETB / waggaa",
             active: "Hojii irra jira",
             inactive: "Hin subscribe goone",
-            subscribeNow: "Ji'aan Subscribe godhi",
+            subscribeMonthly: "Ji'aan Subscribe godhi",
+            subscribeYearly: "Waggaan Subscribe godhi",
             subscribing: "Subscribe gochaa jira...",
             manageInfo:
               "Subscribe erga gootee booda status kee as irratti ni mul'ata.",
             successTitle: "Subscription Milkaa'e",
-            successMessage: "Pilaana ji'aa siif banameera.",
+            successMessage: "Subscription kee hojiirra jira.",
             failedTitle: "Subscription hin milkoofne",
             failedMessage: "Ammaaf subscribe gochuu hin dandeenye.",
             authRequired: "Maaloo seeniitii booda irra deebi'ii yaali.",
@@ -223,21 +205,39 @@ export default function SettingsScreen() {
               "Kaffaltiin mirkaneeffamaa jira...",
             paymentNotCompleted:
               "Kaffaltiin hin xumuramne. Yoo kaffalte, xiqqoo turii irra deebi'ii yaali.",
+            bestValue: "Qeensa gaarii",
+            trialActive: "Yaalii bilisa hojii irra",
+            trialDaysLeft: "guyyaa Canvas & AR irratti hafe",
+            trialEnded: "Yaalii xumurame — subscribe godhi",
+            publicBenefitTitle: "Fayyaa Mootummaa (Mana Barumsaa Mootummaa)",
+            publicBenefitSubtitle:
+              "Barattoonni mana barumsaa mootummaa mirga subscribe ji'a 2 bilisaa ni argatu.",
+            applyPublicBenefit: "Fayyaa Mootummaa Iyyadi",
+            applyingPublicBenefit: "Iyyannoo ergaa jira...",
+            publicBenefitPendingSchool:
+              "Iyyannoon kee ergame. Bulchaa mana barumsaa mirkaneessuuf eegaa jirta.",
+            publicBenefitPendingSuper:
+              "Mana barumsaan mirkanaa'e. Bulchaa waltajjii subscribe kennuuf eegaa jirta.",
+            publicBenefitApproved: "Fayyaa mootummaa mirkanaa'ame.",
+            publicBenefitRejected: "Iyyannoon kee diddame.",
           }
         : {
             title: "Student Subscription",
             subtitle:
-              "Choose a monthly plan to unlock full AI tutor, practice, and learning resources.",
+              "Choose monthly or yearly to unlock full AI tutor, practice, and learning resources.",
             monthlyPlan: "Monthly Plan",
+            yearlyPlan: "Yearly Plan",
             monthlyPrice: "149 ETB / month",
+            yearlyPrice: "1490 ETB / year",
             active: "Active",
             inactive: "Not subscribed",
-            subscribeNow: "Subscribe Monthly",
+            subscribeMonthly: "Subscribe Monthly",
+            subscribeYearly: "Subscribe Yearly",
             subscribing: "Subscribing...",
             manageInfo:
               "After subscribing, your latest status appears here automatically.",
             successTitle: "Subscription Activated",
-            successMessage: "Your monthly student plan is active.",
+            successMessage: "Your subscription is active.",
             failedTitle: "Subscription Failed",
             failedMessage: "Unable to subscribe right now.",
             authRequired: "Please login again and retry.",
@@ -246,77 +246,98 @@ export default function SettingsScreen() {
             verifyPending: "Verifying your payment...",
             paymentNotCompleted:
               "Payment is not completed yet. If you already paid, wait a moment and try again.",
+            bestValue: "Best value",
+            trialActive: "Free trial active",
+            trialDaysLeft: "day(s) left for Canvas & AR",
+            trialEnded: "Trial ended — subscribe to continue",
+            publicBenefitTitle: "Public School Benefit",
+            publicBenefitSubtitle:
+              "Verified public school students can apply for 2 months of free premium access.",
+            applyPublicBenefit: "Apply for Public Benefit",
+            applyingPublicBenefit: "Submitting application...",
+            publicBenefitPendingSchool:
+              "Application submitted. Waiting for your school admin to verify you are a public school student.",
+            publicBenefitPendingSuper:
+              "School verified your application. Waiting for platform approval of your 2-month plan.",
+            publicBenefitApproved: "Your public benefit is active.",
+            publicBenefitRejected: "Your application was not approved.",
           },
     [currentLanguage],
   );
 
-  const loadSubscriptionStatus = useCallback(async () => {
-    setIsSubscriptionLoading(true);
+  const loadPublicBenefitStatus = useCallback(async () => {
     try {
-      await hydrateAuthToken();
-      const token = getAuthToken();
-      if (!token) {
-        setIsMonthlyActive(false);
-        setMonthlyPlanEnd(null);
-        return;
-      }
-
-      const response = await fetch(PAYMENTS_SUBSCRIPTIONS_URL, {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-          "x-auth-token": token,
-        },
-      });
-
-      if (!response.ok) {
-        setIsMonthlyActive(false);
-        setMonthlyPlanEnd(null);
-        return;
-      }
-
-      const payload = (await response.json()) as {
-        data?: Array<{
-          plan_type?: string;
-          status?: string;
-          current_period_end?: string;
-        }>;
-      };
-
-      const subscriptions = Array.isArray(payload?.data) ? payload.data : [];
-      const monthly = subscriptions.find(
-        (item) => String(item?.plan_type || "").toLowerCase() === "monthly",
-      );
-
-      const normalizedStatus = String(monthly?.status || "").toLowerCase();
-      const active =
-        normalizedStatus === "active" || normalizedStatus === "trialing";
-      setIsMonthlyActive(active);
-      setMonthlyPlanEnd(
-        typeof monthly?.current_period_end === "string"
-          ? monthly.current_period_end
-          : null,
-      );
+      const eligibility = await getPublicBenefitEligibility();
+      setPublicBenefitEligibility(eligibility);
     } catch {
-      setIsMonthlyActive(false);
-      setMonthlyPlanEnd(null);
-    } finally {
-      setIsSubscriptionLoading(false);
+      setPublicBenefitEligibility(null);
     }
   }, []);
 
-  useFocusEffect(
-    useCallback(() => {
-      let isMounted = true;
-      void hydrateAppSettings().then(() => {
-        if (!isMounted) return;
-      });
-      void loadSubscriptionStatus();
-      return () => {
-        isMounted = false;
-      };
-    }, [loadSubscriptionStatus]),
+  const handleApplyPublicBenefit = async () => {
+    if (isApplyingPublicBenefit) {
+      return;
+    }
+
+    setIsApplyingPublicBenefit(true);
+    try {
+      await applyForPublicBenefit();
+      invalidateStudentAccessCache();
+      await loadPublicBenefitStatus();
+      Alert.alert(
+        subscriptionCopy.successTitle,
+        subscriptionCopy.publicBenefitPendingSchool,
+      );
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : subscriptionCopy.failedMessage;
+      Alert.alert(subscriptionCopy.failedTitle, message);
+    } finally {
+      setIsApplyingPublicBenefit(false);
+    }
+  };
+
+  const loadSubscriptionStatus = useCallback(
+    async (options?: { forceRefresh?: boolean; showLoading?: boolean }) => {
+      const showLoading =
+        options?.showLoading ?? !subscriptionLoadedRef.current;
+      if (showLoading) {
+        setIsSubscriptionLoading(true);
+      }
+      try {
+        const user = getCurrentUser();
+        if (!user) {
+          setIsSubscriptionActive(false);
+          setCurrentPlanEnd(null);
+          setCurrentPlanName("Free");
+          setCurrentPlanId("free");
+          return;
+        }
+
+        const [access, hasActive, currentPlan, subscription] = await Promise.all([
+          getStudentAccessStatus({ forceRefresh: options?.forceRefresh }),
+          hasActiveSubscription(),
+          getCurrentPlan(),
+          getUserSubscription(),
+        ]);
+
+        setAccessStatus(access);
+        setIsSubscriptionActive(hasActive);
+        setCurrentPlanName(currentPlan?.name || "Free");
+        setCurrentPlanId(currentPlan?.id || "free");
+        setCurrentPlanEnd(subscription?.current_period_end || null);
+      } catch (error) {
+        console.error("Failed to load subscription:", error);
+        setIsSubscriptionActive(false);
+        setCurrentPlanEnd(null);
+        setCurrentPlanName("Free");
+        setCurrentPlanId("free");
+      } finally {
+        subscriptionLoadedRef.current = true;
+        setIsSubscriptionLoading(false);
+      }
+    },
+    [],
   );
 
   const themeMode = appSettings.themeMode;
@@ -325,94 +346,31 @@ export default function SettingsScreen() {
       ? (deviceTheme ?? getEffectiveThemeMode()) === "dark"
       : themeMode === "dark";
 
-  const handleSubscribeMonthly = async () => {
-    if (isSubscribingMonthly) return;
+  const handleSubscribePlan = async (planId: string) => {
+    if (isSubscribingPlanId) return;
 
-    setIsSubscribingMonthly(true);
+    setIsSubscribingPlanId(planId);
     try {
       await hydrateAuthToken();
-      const token = getAuthToken();
-      if (!token) {
+      const user = getCurrentUser();
+      if (!user) {
         Alert.alert(subscriptionCopy.failedTitle, subscriptionCopy.authRequired);
         return;
       }
 
-      const initResponse = await fetch(PAYMENTS_CHAPA_INITIALIZE_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-          "x-auth-token": token,
-        },
-        body: JSON.stringify({
-          plan_type: "monthly",
-          amount: 149,
-          currency: "ETB",
-        }),
-      });
+      const result = await initializeChapaPayment(planId);
 
-      if (!initResponse.ok) {
-        throw new Error(
-          await readApiErrorMessage(initResponse, subscriptionCopy.failedMessage),
-        );
-      }
-
-      const initPayload = (await initResponse.json()) as {
-        data?: {
-          tx_ref?: string;
-          checkout_url?: string;
-        };
-      };
-
-      const txRef = String(initPayload?.data?.tx_ref || "").trim();
-      const checkoutUrl = String(initPayload?.data?.checkout_url || "").trim();
-
-      if (!txRef || !checkoutUrl) {
-        throw new Error("Missing checkout details from payment gateway.");
+      if (!result.success || !result.checkout_url) {
+        throw new Error(result.message || subscriptionCopy.failedMessage);
       }
 
       Alert.alert(subscriptionCopy.successTitle, subscriptionCopy.checkoutPending);
-      await WebBrowser.openBrowserAsync(checkoutUrl, {
+      await WebBrowser.openBrowserAsync(result.checkout_url, {
         presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
       });
 
       Alert.alert(subscriptionCopy.successTitle, subscriptionCopy.verifyPending);
-      const verifyResponse = await fetch(PAYMENTS_CHAPA_VERIFY_URL(txRef), {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-          "x-auth-token": token,
-        },
-      });
-
-      if (!verifyResponse.ok) {
-        throw new Error(
-          await readApiErrorMessage(verifyResponse, subscriptionCopy.failedMessage),
-        );
-      }
-
-      const verifyPayload = (await verifyResponse.json()) as {
-        data?: { verified?: boolean; status?: string };
-      };
-      const verified = Boolean(verifyPayload?.data?.verified);
-      const verifyStatus = String(verifyPayload?.data?.status || "").toLowerCase();
-
-      if (!verified) {
-        Alert.alert(
-          subscriptionCopy.failedTitle,
-          verifyStatus
-            ? `${subscriptionCopy.paymentNotCompleted} (${verifyStatus})`
-            : subscriptionCopy.paymentNotCompleted,
-        );
-        void loadSubscriptionStatus();
-        return;
-      }
-
-      setIsMonthlyActive(true);
-      setMonthlyPlanEnd(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString());
-      Alert.alert(subscriptionCopy.successTitle, subscriptionCopy.successMessage);
-      void loadSubscriptionStatus();
+      await checkPendingPayment();
     } catch (error) {
       const message =
         error instanceof Error && error.message.trim()
@@ -420,9 +378,132 @@ export default function SettingsScreen() {
           : subscriptionCopy.failedMessage;
       Alert.alert(subscriptionCopy.failedTitle, message);
     } finally {
-      setIsSubscribingMonthly(false);
+      setIsSubscribingPlanId(null);
     }
   };
+
+  const verifyAndFinalizePayment = useCallback(
+    async (txRef: string) => {
+      if (!txRef) return;
+
+      setIsSubscriptionLoading(true);
+      try {
+        const verification = await verifyChapaPayment(txRef);
+        if (!verification.verified) {
+          const isPending = verification.status === "pending";
+          Alert.alert(
+            subscriptionCopy.failedTitle,
+            isPending
+              ? subscriptionCopy.paymentNotCompleted
+              : verification.message || subscriptionCopy.failedMessage,
+          );
+          return;
+        }
+
+        await clearPendingTransaction();
+        invalidateStudentAccessCache();
+        await loadSubscriptionStatus({
+          forceRefresh: true,
+          showLoading: true,
+        });
+        Alert.alert(subscriptionCopy.successTitle, subscriptionCopy.successMessage);
+      } catch (error) {
+        const message =
+          error instanceof Error && error.message.trim()
+            ? error.message
+            : subscriptionCopy.failedMessage;
+        Alert.alert(subscriptionCopy.failedTitle, message);
+      } finally {
+        setIsSubscriptionLoading(false);
+      }
+    },
+    [
+      loadSubscriptionStatus,
+      subscriptionCopy.failedMessage,
+      subscriptionCopy.failedTitle,
+      subscriptionCopy.paymentNotCompleted,
+      subscriptionCopy.successMessage,
+      subscriptionCopy.successTitle,
+    ],
+  );
+
+  const checkPendingPayment = useCallback(async () => {
+    const pendingTx = await getPendingTransactionRef();
+    if (!pendingTx) return;
+    await verifyAndFinalizePayment(pendingTx);
+  }, [verifyAndFinalizePayment]);
+
+  useEffect(() => {
+    const resolveTxRef = (url: string | null) => {
+      if (!url) return null;
+      try {
+        const parsed = new URL(url);
+        return parsed.searchParams.get("tx_ref");
+      } catch {
+        return null;
+      }
+    };
+
+    void Linking.getInitialURL().then((url) => {
+      const txRef = resolveTxRef(url);
+      if (txRef) {
+        void verifyAndFinalizePayment(txRef);
+      }
+    });
+
+    const subscription = Linking.addEventListener("url", async (event) => {
+      const txRef = resolveTxRef(event?.url ?? null);
+      if (txRef) {
+        await verifyAndFinalizePayment(txRef);
+      }
+    });
+
+    return () => subscription.remove();
+  }, [verifyAndFinalizePayment]);
+
+  useFocusEffect(
+    useCallback(() => {
+      let isMounted = true;
+      void hydrateAppSettings().then(() => {
+        if (!isMounted) return;
+      });
+      const cached = peekStudentAccessStatus();
+      if (cached) {
+        setAccessStatus(cached);
+      }
+      void loadSubscriptionStatus({ showLoading: !cached });
+      void loadPublicBenefitStatus();
+      void checkPendingPayment();
+      return () => {
+        isMounted = false;
+      };
+    }, [loadSubscriptionStatus, loadPublicBenefitStatus, checkPendingPayment]),
+  );
+
+  const publicBenefitStatusMessage = useMemo(() => {
+    const status = publicBenefitEligibility?.application?.status;
+    if (status === "pending_school") {
+      return subscriptionCopy.publicBenefitPendingSchool;
+    }
+    if (status === "pending_super_admin") {
+      return subscriptionCopy.publicBenefitPendingSuper;
+    }
+    if (status === "approved") {
+      return subscriptionCopy.publicBenefitApproved;
+    }
+    if (status === "rejected_school" || status === "rejected_super_admin") {
+      return subscriptionCopy.publicBenefitRejected;
+    }
+    if (!publicBenefitEligibility?.canApply && publicBenefitEligibility?.reason) {
+      return publicBenefitEligibility.reason;
+    }
+    return subscriptionCopy.publicBenefitSubtitle;
+  }, [publicBenefitEligibility, subscriptionCopy]);
+
+  const showPublicBenefitSection =
+    publicBenefitEligibility?.schoolType === "public" ||
+    publicBenefitEligibility?.application != null;
+
   const applyLanguage = async (language: "en" | "om") => {
     if (language === currentLanguage || isSavingLanguage) {
       return;
@@ -725,7 +806,7 @@ export default function SettingsScreen() {
                 { color: isDark ? "#F4F7FB" : "#12233F" },
               ]}
             >
-              24/7
+              {currentPlanName}
             </Text>
             <Text
               style={[
@@ -733,7 +814,7 @@ export default function SettingsScreen() {
                 { color: isDark ? "#AAB7CF" : "#6D84AA" },
               ]}
             >
-              {t("settings.supportAccess")}
+              {t("settings.currentPlan") || "Current Plan"}
             </Text>
           </View>
           <View
@@ -751,7 +832,7 @@ export default function SettingsScreen() {
                 { color: isDark ? "#F4F7FB" : "#12233F" },
               ]}
             >
-              AES
+              {isSubscriptionActive ? "✓" : "—"}
             </Text>
             <Text
               style={[
@@ -759,7 +840,7 @@ export default function SettingsScreen() {
                 { color: isDark ? "#AAB7CF" : "#6D84AA" },
               ]}
             >
-              {t("settings.secureStorage")}
+              {t("settings.premiumStatus") || "Premium"}
             </Text>
           </View>
           <View
@@ -777,7 +858,7 @@ export default function SettingsScreen() {
                 { color: isDark ? "#F4F7FB" : "#12233F" },
               ]}
             >
-              1 Tap
+              {monthlyPlan?.price ?? 149}
             </Text>
             <Text
               style={[
@@ -785,7 +866,7 @@ export default function SettingsScreen() {
                 { color: isDark ? "#AAB7CF" : "#6D84AA" },
               ]}
             >
-              {t("settings.profileUpdates")}
+              {t("settings.monthlyPrice") || "ETB/mo"}
             </Text>
           </View>
         </View>
@@ -830,6 +911,95 @@ export default function SettingsScreen() {
             </View>
           </View>
 
+          {accessStatus?.isOnTrial ? (
+            <View
+              style={[
+                styles.trialBanner,
+                {
+                  backgroundColor: isDark ? "#0E2240" : "#EAF2FF",
+                  borderColor: isDark ? "#1E4A8C" : "#B8D4FF",
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.trialBannerTitle,
+                  { color: isDark ? "#B8D4FF" : "#0045B0" },
+                ]}
+              >
+                {subscriptionCopy.trialActive}: {accessStatus.trialDaysLeft}{" "}
+                {subscriptionCopy.trialDaysLeft}
+              </Text>
+            </View>
+          ) : null}
+
+          {accessStatus?.trialExpired ? (
+            <View
+              style={[
+                styles.trialBanner,
+                {
+                  backgroundColor: isDark ? "#2A1A1A" : "#FFF5F5",
+                  borderColor: isDark ? "#6B2D2D" : "#FECACA",
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.trialBannerTitle,
+                  { color: isDark ? "#FCA5A5" : "#991B1B" },
+                ]}
+              >
+                {subscriptionCopy.trialEnded}
+              </Text>
+            </View>
+          ) : null}
+
+          {showPublicBenefitSection ? (
+            <View
+              style={[
+                styles.publicBenefitCard,
+                {
+                  backgroundColor: isDark ? "#0E2240" : "#EAF2FF",
+                  borderColor: isDark ? "#1E4A8C" : "#B8D4FF",
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.publicBenefitTitle,
+                  { color: isDark ? "#F4F7FB" : "#12233F" },
+                ]}
+              >
+                {subscriptionCopy.publicBenefitTitle}
+              </Text>
+              <Text
+                style={[
+                  styles.publicBenefitMessage,
+                  { color: isDark ? "#B8D4FF" : "#35507E" },
+                ]}
+              >
+                {publicBenefitStatusMessage}
+              </Text>
+              {publicBenefitEligibility?.canApply ? (
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.publicBenefitButton,
+                    (isApplyingPublicBenefit || pressed) &&
+                      styles.subscribeButtonPressed,
+                  ]}
+                  onPress={() => void handleApplyPublicBenefit()}
+                  disabled={isApplyingPublicBenefit}
+                >
+                  <Text style={styles.publicBenefitButtonText}>
+                    {isApplyingPublicBenefit
+                      ? subscriptionCopy.applyingPublicBenefit
+                      : subscriptionCopy.applyPublicBenefit}
+                  </Text>
+                </Pressable>
+              ) : null}
+            </View>
+          ) : null}
+
           <View
             style={[
               styles.subscriptionPlanRow,
@@ -852,60 +1022,158 @@ export default function SettingsScreen() {
                 {subscriptionCopy.monthlyPrice}
               </Text>
             </View>
-            <View
-              style={[
-                styles.subscriptionStatusPill,
-                isMonthlyActive
-                  ? styles.subscriptionStatusPillActive
-                  : styles.subscriptionStatusPillInactive,
-              ]}
-            >
-              <Text
+              <View
                 style={[
-                  styles.subscriptionStatusText,
-                  isMonthlyActive
-                    ? styles.subscriptionStatusTextActive
-                    : styles.subscriptionStatusTextInactive,
+                  styles.subscriptionStatusPill,
+                  isSubscriptionActive && currentPlanId === "premium_monthly"
+                    ? styles.subscriptionStatusPillActive
+                    : styles.subscriptionStatusPillInactive,
                 ]}
               >
-                {isSubscriptionLoading
-                  ? "..."
-                  : isMonthlyActive
-                    ? subscriptionCopy.active
-                    : subscriptionCopy.inactive}
-              </Text>
-            </View>
+                <Text
+                  style={[
+                    styles.subscriptionStatusText,
+                    isSubscriptionActive && currentPlanId === "premium_monthly"
+                      ? styles.subscriptionStatusTextActive
+                      : styles.subscriptionStatusTextInactive,
+                  ]}
+                >
+                  {isSubscriptionLoading
+                    ? "..."
+                    : isSubscriptionActive && currentPlanId === "premium_monthly"
+                      ? subscriptionCopy.active
+                      : subscriptionCopy.inactive}
+                </Text>
+              </View>
           </View>
 
-          {monthlyPlanEnd ? (
+            {currentPlanEnd && currentPlanId === "premium_monthly" ? (
             <Text
               style={[
                 styles.subscriptionPeriodText,
                 { color: isDark ? "#8FA3C0" : "#6D84AA" },
               ]}
             >
-              {`Until ${new Date(monthlyPlanEnd).toLocaleDateString()}`}
+                {`Until ${new Date(currentPlanEnd).toLocaleDateString()}`}
             </Text>
           ) : null}
 
           <Pressable
             style={({ pressed }) => [
               styles.subscribeButton,
-              (isSubscribingMonthly || isMonthlyActive) &&
+                (isSubscribingPlanId === "premium_monthly" ||
+                  (isSubscriptionActive && currentPlanId === "premium_monthly")) &&
                 styles.subscribeButtonDisabled,
               pressed && styles.subscribeButtonPressed,
             ]}
-            onPress={() => void handleSubscribeMonthly()}
-            disabled={isSubscribingMonthly || isMonthlyActive}
+              onPress={() => void handleSubscribePlan("premium_monthly")}
+              disabled={
+                isSubscribingPlanId === "premium_monthly" ||
+                (isSubscriptionActive && currentPlanId === "premium_monthly")
+              }
           >
             <Text style={styles.subscribeButtonText}>
-              {isSubscribingMonthly
+                {isSubscribingPlanId === "premium_monthly"
                 ? subscriptionCopy.subscribing
-                : isMonthlyActive
+                  : isSubscriptionActive && currentPlanId === "premium_monthly"
                   ? subscriptionCopy.active
-                  : subscriptionCopy.subscribeNow}
+                    : subscriptionCopy.subscribeMonthly}
             </Text>
           </Pressable>
+
+            {yearlyPlan ? (
+              <View style={{ marginTop: 14 }}>
+                <View
+                  style={[
+                    styles.subscriptionPlanRow,
+                    {
+                      backgroundColor: isDark ? "#121C2E" : "#F7FAFF",
+                      borderColor: isDark ? "#2E4368" : "#DCE9FC",
+                    },
+                  ]}
+                >
+                  <View style={styles.subscriptionPlanTextWrap}>
+                    <Text
+                      style={[
+                        styles.settingTitle,
+                        { color: isDark ? "#F4F7FB" : "#12233F" },
+                      ]}
+                    >
+                      {subscriptionCopy.yearlyPlan}
+                    </Text>
+                    <Text style={styles.subscriptionPriceText}>
+                      {subscriptionCopy.yearlyPrice}
+                    </Text>
+                  </View>
+                  <View
+                    style={[
+                      styles.subscriptionStatusPill,
+                      isSubscriptionActive && currentPlanId === "premium_yearly"
+                        ? styles.subscriptionStatusPillActive
+                        : styles.subscriptionStatusPillInactive,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.subscriptionStatusText,
+                        isSubscriptionActive && currentPlanId === "premium_yearly"
+                          ? styles.subscriptionStatusTextActive
+                          : styles.subscriptionStatusTextInactive,
+                      ]}
+                    >
+                      {isSubscriptionLoading
+                        ? "..."
+                        : isSubscriptionActive && currentPlanId === "premium_yearly"
+                          ? subscriptionCopy.active
+                          : subscriptionCopy.inactive}
+                    </Text>
+                  </View>
+                </View>
+
+                {currentPlanEnd && currentPlanId === "premium_yearly" ? (
+                  <Text
+                    style={[
+                      styles.subscriptionPeriodText,
+                      { color: isDark ? "#8FA3C0" : "#6D84AA" },
+                    ]}
+                  >
+                    {`Until ${new Date(currentPlanEnd).toLocaleDateString()}`}
+                  </Text>
+                ) : null}
+
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.subscribeButton,
+                    (isSubscribingPlanId === "premium_yearly" ||
+                      (isSubscriptionActive && currentPlanId === "premium_yearly")) &&
+                      styles.subscribeButtonDisabled,
+                    pressed && styles.subscribeButtonPressed,
+                  ]}
+                  onPress={() => void handleSubscribePlan("premium_yearly")}
+                  disabled={
+                    isSubscribingPlanId === "premium_yearly" ||
+                    (isSubscriptionActive && currentPlanId === "premium_yearly")
+                  }
+                >
+                  <Text style={styles.subscribeButtonText}>
+                    {isSubscribingPlanId === "premium_yearly"
+                      ? subscriptionCopy.subscribing
+                      : isSubscriptionActive && currentPlanId === "premium_yearly"
+                        ? subscriptionCopy.active
+                        : subscriptionCopy.subscribeYearly}
+                  </Text>
+                </Pressable>
+
+                <Text
+                  style={[
+                    styles.subscriptionInfoText,
+                    { color: isDark ? "#8FA3C0" : "#6D84AA" },
+                  ]}
+                >
+                  {subscriptionCopy.bestValue}
+                </Text>
+              </View>
+            ) : null}
 
           <Text
             style={[
@@ -979,16 +1247,6 @@ export default function SettingsScreen() {
                     >
                       {t(item.subtitleKey)}
                     </Text>
-                    {"infoKey" in item && item.infoKey ? (
-                      <Text
-                        style={[
-                          styles.settingInfo,
-                          { color: isDark ? "#8FA3C0" : "#7D8EA9" },
-                        ]}
-                      >
-                        {t(item.infoKey)}
-                      </Text>
-                    ) : null}
                   </View>
 
                   {item.action === "open" ? (
@@ -1376,6 +1634,47 @@ const styles = StyleSheet.create({
   },
   subscriptionStatusPillActive: {
     backgroundColor: "#E8FFF2",
+  },
+  trialBanner: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 12,
+  },
+  trialBannerTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+    lineHeight: 18,
+  },
+  publicBenefitCard: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    marginBottom: 12,
+    gap: 10,
+  },
+  publicBenefitTitle: {
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  publicBenefitMessage: {
+    fontSize: 13,
+    fontWeight: "600",
+    lineHeight: 19,
+  },
+  publicBenefitButton: {
+    alignSelf: "flex-start",
+    backgroundColor: "#0056D2",
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 11,
+  },
+  publicBenefitButtonText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "700",
   },
   subscriptionStatusPillInactive: {
     backgroundColor: "#EFF4FF",

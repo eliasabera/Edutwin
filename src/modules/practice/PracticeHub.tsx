@@ -4,6 +4,7 @@ import {
   fetchPracticeLibraryQuizzes,
   fetchPracticeQuizDetail,
   generatePracticeQuestions,
+  normalizePracticeQuizSubject,
   type BackendPracticeQuizSummary,
   type PracticeResponse,
 } from "@/shared/services/ai-service";
@@ -15,7 +16,6 @@ import type {
 } from "@/shared/store/practice-store";
 import { useStudentProfile } from "@/shared/store/user-store";
 import type { SubjectName } from "@/shared/types/domain.types";
-import { normalizePracticeQuestions } from "@/shared/services/practice-quiz-normalizer";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
@@ -105,6 +105,9 @@ export default function PracticeHub() {
     recently: isOm ? "Dhiheenya" : "Recently",
     complete: isOm ? "xumurame" : "complete",
     score: isOm ? "Bu'aa" : "Score",
+    attempts: isOm ? "Yaalii" : "Attempts",
+    best: isOm ? "Bu'aa ol'aanaa" : "Best",
+    last: isOm ? "Bu'aa dhumaa" : "Last",
     question: isOm ? "Gaaffii" : "Question",
     of: isOm ? "kan keessaa" : "of",
     typeYourAnswer: isOm ? "Deebii kee barreessi" : "Type your answer",
@@ -271,7 +274,6 @@ export default function PracticeHub() {
       params: {
         quizId: response.quizId,
         subject,
-        questions: JSON.stringify(response.questions),
       },
     });
 
@@ -288,8 +290,7 @@ export default function PracticeHub() {
         return;
       }
 
-      const normalizedQuestions = normalizePracticeQuestions(detail.questions);
-      if (!normalizedQuestions.length) {
+      if (!detail.questions.length) {
         setErrorText(copy.noQuestionsYet);
         return;
       }
@@ -299,7 +300,6 @@ export default function PracticeHub() {
         params: {
           quizId: detail.quizId,
           subject: detail.subject || item.subject,
-          questions: JSON.stringify(normalizedQuestions),
         },
       });
     } catch (error) {
@@ -309,29 +309,40 @@ export default function PracticeHub() {
     }
   };
 
+  const matchesSubjectFilter = useCallback(
+    (subjectValue: string) => {
+      const subjectKey = normalizePracticeQuizSubject(subjectValue);
+      if (quizSubjectFilter === "all") return true;
+      return subjectKey === quizSubjectFilter;
+    },
+    [quizSubjectFilter],
+  );
+
   const groupedTeacherSets = useMemo(() => {
-    const filtered =
-      quizSubjectFilter === "all"
-        ? teacherPracticeSets
-        : teacherPracticeSets.filter((set) => set.subject === quizSubjectFilter);
+    const filtered = teacherPracticeSets.filter((set) =>
+      matchesSubjectFilter(set.subject),
+    );
 
     return SUBJECTS.map((subjectKey) => ({
       subject: subjectKey,
-      items: filtered.filter((set) => set.subject === subjectKey),
+      items: filtered.filter(
+        (set) => normalizePracticeQuizSubject(set.subject) === subjectKey,
+      ),
     })).filter((group) => group.items.length > 0);
-  }, [quizSubjectFilter, teacherPracticeSets]);
+  }, [matchesSubjectFilter, teacherPracticeSets]);
 
   const groupedSavedSets = useMemo(() => {
-    const filtered =
-      quizSubjectFilter === "all"
-        ? savedPracticeSets
-        : savedPracticeSets.filter((set) => set.subject === quizSubjectFilter);
+    const filtered = savedPracticeSets.filter((set) =>
+      matchesSubjectFilter(set.subject),
+    );
 
     return SUBJECTS.map((subjectKey) => ({
       subject: subjectKey,
-      items: filtered.filter((set) => set.subject === subjectKey),
+      items: filtered.filter(
+        (set) => normalizePracticeQuizSubject(set.subject) === subjectKey,
+      ),
     })).filter((group) => group.items.length > 0);
-  }, [quizSubjectFilter, savedPracticeSets]);
+  }, [matchesSubjectFilter, savedPracticeSets]);
 
   const advanceQuestion = () => {
     setShortAnswerInput("");
@@ -480,6 +491,18 @@ export default function PracticeHub() {
       >
         {set.questionCount} • {formatDisplayDate(set.createdAt) || copy.recently}
       </Text>
+      {set.attemptCount ? (
+        <Text
+          style={[
+            styles.libraryMeta,
+            { color: isDark ? "#78A5FF" : "#0B5FFF", marginTop: 4 },
+          ]}
+        >
+          {copy.attempts}: {set.attemptCount}
+          {set.bestScorePercent != null ? ` • ${copy.best}: ${set.bestScorePercent}%` : ""}
+          {set.lastScorePercent != null ? ` • ${copy.last}: ${set.lastScorePercent}%` : ""}
+        </Text>
+      ) : null}
     </TouchableOpacity>
   );
 

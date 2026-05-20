@@ -1,11 +1,12 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Link, useRouter } from "expo-router";
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   Alert,
   Image,
   KeyboardAvoidingView,
   Platform,
+  StatusBar,
   StyleSheet,
   Text,
   TextInput,
@@ -18,23 +19,100 @@ import {
   loginUser,
   mapBackendProfileToStudentProfile,
 } from "../../../shared/services/auth-service";
-import { updateStudentProfile } from "../../../shared/store/user-store";
+import {
+  type AuthScreenColors,
+  useAuthIsDark,
+  useAuthScreenColors,
+} from "../../../shared/constants/auth-screen-theme";
+import { setStudentProfile } from "../../../shared/store/user-store";
+import { clearTutorChatCache } from "../ai-tutor/ChatContainer";
 import { setPreferredLanguage } from "../../../shared/store/language-store";
 import { setHasAcceptedTermsPolicy } from "../../../shared/store/settings-store";
 
-const AUTH_COLORS = {
-  background: "#FFFFFF",
-  surface: "#FFFFFF",
-  text: "#102445",
-  textLight: "#6D84AA",
-  primary: "#0056D2",
-  error: "#DC3545",
-};
-
 const MIN_PASSWORD_LENGTH = 8;
+
+const createStyles = (colors: AuthScreenColors) =>
+  StyleSheet.create({
+    safeArea: {
+      flex: 1,
+      backgroundColor: colors.surface,
+    },
+    container: {
+      flex: 1,
+      backgroundColor: colors.surface,
+      padding: 24,
+      justifyContent: "center",
+    },
+    header: {
+      marginBottom: 28,
+      alignItems: "center",
+    },
+    logo: {
+      width: 148,
+      height: 148,
+      alignSelf: "center",
+      marginBottom: 8,
+    },
+    title: {
+      fontSize: 32,
+      fontWeight: "bold",
+      color: colors.primary,
+      marginBottom: 6,
+      textAlign: "center",
+    },
+    subtitle: {
+      fontSize: 16,
+      color: colors.textLight,
+      textAlign: "center",
+      lineHeight: 22,
+      maxWidth: 300,
+    },
+    form: { gap: 16 },
+    inputContainer: {
+      flexDirection: "row",
+      alignItems: "center",
+      backgroundColor: colors.inputBg,
+      borderWidth: 1,
+      borderColor: colors.inputBorder,
+      borderRadius: 12,
+      paddingHorizontal: 16,
+      height: 56,
+    },
+    icon: { marginRight: 12 },
+    input: { flex: 1, fontSize: 16, color: colors.text },
+    visibilityToggle: {
+      marginLeft: 10,
+      padding: 2,
+    },
+    errorText: {
+      color: colors.error,
+      fontSize: 13,
+      marginTop: -2,
+    },
+    btnPrimary: {
+      backgroundColor: colors.primary,
+      height: 56,
+      borderRadius: 16,
+      justifyContent: "center",
+      alignItems: "center",
+      marginTop: 10,
+      shadowColor: colors.primary,
+      shadowOpacity: 0.3,
+      shadowRadius: 10,
+      elevation: 5,
+    },
+    btnDisabled: { opacity: 0.7 },
+    btnText: { color: "white", fontSize: 18, fontWeight: "600" },
+    footer: { flexDirection: "row", justifyContent: "center", marginTop: 28 },
+    footerText: { color: colors.textLight, fontSize: 16 },
+    link: { color: colors.primary, fontSize: 16, fontWeight: "bold" },
+  });
 
 export default function LoginComponent() {
   const router = useRouter();
+  const colors = useAuthScreenColors();
+  const isDark = useAuthIsDark();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -81,10 +159,30 @@ export default function LoginComponent() {
       setErrorMessage("");
       setIsLoading(true);
       await loginUser(trimmedEmail, password);
-      const backendProfile = await fetchStudentProfile();
+      clearTutorChatCache();
+      const backendProfile = await fetchStudentProfile({ forceRefresh: true });
       const mappedProfile = mapBackendProfileToStudentProfile(backendProfile);
       setHasAcceptedTermsPolicy(backendProfile.has_accepted_terms_policy === true);
-      updateStudentProfile(mappedProfile);
+      setStudentProfile({
+        fullName: mappedProfile.fullName || "Student",
+        grade: mappedProfile.grade || "9",
+        masteryScore: mappedProfile.masteryScore ?? 55,
+        performanceBand: mappedProfile.performanceBand || "medium",
+        preferredLanguage: mappedProfile.preferredLanguage || "en",
+        twinName: mappedProfile.twinName || "EduTwin",
+        supportSubjects: mappedProfile.supportSubjects || ["physics"],
+        strongSubjects: mappedProfile.strongSubjects || ["biology"],
+        diagnosticCompleted: mappedProfile.diagnosticCompleted ?? false,
+        xp: mappedProfile.xp,
+        streak: mappedProfile.streak,
+        lastActive: mappedProfile.lastActive,
+        studentPhotoUri: mappedProfile.studentPhotoUri,
+        twinPhotoUri: mappedProfile.twinPhotoUri,
+        isSubscribed: mappedProfile.isSubscribed,
+        labBonusUnlock: mappedProfile.labBonusUnlock,
+        subscriptionStatus: mappedProfile.subscriptionStatus,
+        subscriptionPeriodEnd: mappedProfile.subscriptionPeriodEnd,
+      });
       await setPreferredLanguage(mappedProfile.preferredLanguage || "en");
       router.replace("/(tabs)/home" as never);
     } catch (error) {
@@ -99,11 +197,14 @@ export default function LoginComponent() {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
+      <StatusBar
+        barStyle={isDark ? "light-content" : "dark-content"}
+        backgroundColor={colors.surface}
+      />
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={styles.container}
       >
-        {/* HEADER */}
         <View style={styles.header}>
           <Image
             source={require("../../../assets/images/logo.png")}
@@ -114,18 +215,17 @@ export default function LoginComponent() {
           <Text style={styles.subtitle}>{copy.loginSubtitle}</Text>
         </View>
 
-        {/* FORM */}
         <View style={styles.form}>
-          {/* Email Input */}
           <View style={styles.inputContainer}>
             <Ionicons
               name="mail-outline"
               size={20}
-              color={AUTH_COLORS.textLight}
+              color={colors.textLight}
               style={styles.icon}
             />
             <TextInput
               placeholder={copy.emailPlaceholder}
+              placeholderTextColor={colors.placeholder}
               value={email}
               onChangeText={setEmail}
               style={styles.input}
@@ -134,16 +234,16 @@ export default function LoginComponent() {
             />
           </View>
 
-          {/* Password Input */}
           <View style={styles.inputContainer}>
             <Ionicons
               name="lock-closed-outline"
               size={20}
-              color={AUTH_COLORS.textLight}
+              color={colors.textLight}
               style={styles.icon}
             />
             <TextInput
               placeholder={copy.passwordPlaceholder}
+              placeholderTextColor={colors.placeholder}
               value={password}
               onChangeText={setPassword}
               secureTextEntry={!showPassword}
@@ -158,7 +258,7 @@ export default function LoginComponent() {
               <Ionicons
                 name={showPassword ? "eye-off-outline" : "eye-outline"}
                 size={20}
-                color={AUTH_COLORS.textLight}
+                color={colors.textLight}
               />
             </TouchableOpacity>
           </View>
@@ -178,7 +278,6 @@ export default function LoginComponent() {
           </TouchableOpacity>
         </View>
 
-        {/* FOOTER */}
         <View style={styles.footer}>
           <Text style={styles.footerText}>{copy.noAccount}</Text>
           <Link href="/(auth)/register" asChild>
@@ -191,79 +290,3 @@ export default function LoginComponent() {
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: AUTH_COLORS.surface,
-  },
-  container: {
-    flex: 1,
-    backgroundColor: AUTH_COLORS.surface,
-    padding: 24,
-    justifyContent: "center",
-  },
-  header: {
-    marginBottom: 28,
-    alignItems: "center",
-  },
-  logo: {
-    width: 148,
-    height: 148,
-    alignSelf: "center",
-    marginBottom: 8,
-  },
-  title: {
-    fontSize: 32,
-    fontWeight: "bold",
-    color: AUTH_COLORS.primary,
-    marginBottom: 6,
-    textAlign: "center",
-  },
-  subtitle: {
-    fontSize: 16,
-    color: AUTH_COLORS.textLight,
-    textAlign: "center",
-    lineHeight: 22,
-    maxWidth: 300,
-  },
-  form: { gap: 16 },
-  inputContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: AUTH_COLORS.background,
-    borderWidth: 1,
-    borderColor: "#D6DDEA",
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    height: 56,
-  },
-  icon: { marginRight: 12 },
-  input: { flex: 1, fontSize: 16, color: AUTH_COLORS.text },
-  visibilityToggle: {
-    marginLeft: 10,
-    padding: 2,
-  },
-  errorText: {
-    color: AUTH_COLORS.error,
-    fontSize: 13,
-    marginTop: -2,
-  },
-  btnPrimary: {
-    backgroundColor: AUTH_COLORS.primary,
-    height: 56,
-    borderRadius: 16,
-    justifyContent: "center",
-    alignItems: "center",
-    marginTop: 10,
-    shadowColor: AUTH_COLORS.primary,
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    elevation: 5,
-  },
-  btnDisabled: { opacity: 0.7 },
-  btnText: { color: "white", fontSize: 18, fontWeight: "600" },
-  footer: { flexDirection: "row", justifyContent: "center", marginTop: 28 },
-  footerText: { color: AUTH_COLORS.textLight, fontSize: 16 },
-  link: { color: AUTH_COLORS.primary, fontSize: 16, fontWeight: "bold" },
-});

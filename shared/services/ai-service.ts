@@ -945,6 +945,16 @@ export type BackendPracticeQuizSummary = {
   questionCount: number;
   createdAt: string;
   source: "teacher" | "ai";
+  attemptCount?: number;
+  lastScorePercent?: number | null;
+  bestScorePercent?: number | null;
+};
+
+export type QuizAttemptSummary = {
+  attemptCount: number;
+  lastScore: number | null;
+  lastScorePercent: number | null;
+  bestScorePercent: number | null;
 };
 
 export type GradePayload = {
@@ -1060,6 +1070,7 @@ type SubmitPracticeAttemptPayload = {
     questionId: string;
     providedAnswer: string;
   }>;
+  startedAt?: string;
 };
 
 const mapPracticeQuestionType = (
@@ -1392,13 +1403,18 @@ export const generatePracticeQuestions = async (
       source: "AI",
     });
 
+    const detail = await fetchPracticeQuizDetail(quizId);
+    const persistedQuestions = detail.questions.length
+      ? detail.questions
+      : questions;
+
     void syncTwinProgress({
       xp_delta: 1,
       subject: payload.subject,
     });
 
     return {
-      questions,
+      questions: persistedQuestions,
       quizId,
       error: null,
       subject: String(payload.subject || ""),
@@ -1421,6 +1437,88 @@ export const generatePracticeQuestions = async (
       error: "Quiz generation failed. Please retry.",
     };
   }
+};
+
+const buildQuizAttemptSummaries = async (
+  quizIds: string[],
+): Promise<Map<string, QuizAttemptSummary>> => {
+  const summaryMap = new Map<string, QuizAttemptSummary>();
+  const studentId = await resolveStudentId();
+  if (!studentId || !quizIds.length) {
+    return summaryMap;
+  }
+
+  const { data, error } = await supabase
+    .from("quiz_attempts")
+    .select(
+      "quiz_id, total_score, completed_at, quizzes ( total_score_possible )",
+    )
+    .eq("student_id", studentId)
+    .in("quiz_id", quizIds)
+    .order("completed_at", { ascending: false });
+
+  if (error || !data) {
+    return summaryMap;
+  }
+
+  for (const row of data) {
+    const quizId = String(row.quiz_id || "");
+    if (!quizId) continue;
+
+    const quizRow = Array.isArray(row.quizzes) ? row.quizzes[0] : row.quizzes;
+    const totalPossible =
+      typeof quizRow?.total_score_possible === "number"
+        ? quizRow.total_score_possible
+        : 0;
+    const totalScore =
+      typeof row.total_score === "number" ? row.total_score : null;
+    const scorePercent =
+      totalScore !== null && totalPossible > 0
+        ? Math.round((totalScore / totalPossible) * 100)
+        : null;
+
+    const existing = summaryMap.get(quizId) || {
+      attemptCount: 0,
+      lastScore: null,
+      lastScorePercent: null,
+      bestScorePercent: null,
+    };
+
+    existing.attemptCount += 1;
+    if (existing.lastScore === null) {
+      existing.lastScore = totalScore;
+      existing.lastScorePercent = scorePercent;
+    }
+    if (
+      scorePercent !== null &&
+      (existing.bestScorePercent === null ||
+        scorePercent > existing.bestScorePercent)
+    ) {
+      existing.bestScorePercent = scorePercent;
+    }
+
+    summaryMap.set(quizId, existing);
+  }
+
+  return summaryMap;
+};
+
+const attachQuizAttemptSummaries = async <T extends { id: string }>(
+  quizzes: T[],
+): Promise<Array<T & QuizAttemptSummary>> => {
+  const quizIds = quizzes.map((quiz) => quiz.id).filter(Boolean);
+  const summaryMap = await buildQuizAttemptSummaries(quizIds);
+
+  return quizzes.map((quiz) => {
+    const summary = summaryMap.get(quiz.id);
+    return {
+      ...quiz,
+      attemptCount: summary?.attemptCount ?? 0,
+      lastScore: summary?.lastScore ?? null,
+      lastScorePercent: summary?.lastScorePercent ?? null,
+      bestScorePercent: summary?.bestScorePercent ?? null,
+    };
+  });
 };
 
 export const submitPracticeAttempt = async (
@@ -1455,23 +1553,7 @@ export const submitPracticeAttempt = async (
       ]),
     );
 
-    const { data: attemptRow, error: attemptError } = await supabase
-      .from("quiz_attempts")
-      .insert({
-        student_id: studentId,
-        quiz_id: payload.quizId,
-        started_at: new Date().toISOString(),
-        completed_at: new Date().toISOString(),
-      })
-      .select("id")
-      .single();
-
-    if (attemptError || !attemptRow?.id) {
-      throw new Error(attemptError?.message || "Failed to save attempt");
-    }
-
     const answerRows = payload.answers.map((item) => ({
-      attempt_id: attemptRow.id,
       question_id: item.questionId,
       provided_answer: item.providedAnswer,
       is_correct:
@@ -1480,15 +1562,53 @@ export const submitPracticeAttempt = async (
       ai_feedback: null,
     }));
 
+    const totalScore = answerRows.filter((row) => row.is_correct).length;
+    const startedAt = payload.startedAt || new Date().toISOString();
+
+    const { data: attemptRow, error: attemptError } = await supabase
+      .from("quiz_attempts")
+      .insert({
+        student_id: studentId,
+        quiz_id: payload.quizId,
+        total_score: totalScore,
+        started_at: startedAt,
+        completed_at: new Date().toISOString(),
+      })
+      .select("id, total_score")
+      .single();
+
+    if (attemptError || !attemptRow?.id) {
+      throw new Error(attemptError?.message || "Failed to save attempt");
+    }
+
+    const persistedAnswers = answerRows.map((row) => ({
+      ...row,
+      attempt_id: attemptRow.id,
+    }));
+
     const { error: answerError } = await supabase
       .from("student_answers")
-      .insert(answerRows);
+      .insert(persistedAnswers);
 
     if (answerError) {
       throw new Error(answerError.message);
     }
 
-    return { success: true, data: { attemptId: attemptRow.id } };
+    const totalQuestions = payload.answers.length;
+    const scorePercent =
+      totalQuestions > 0
+        ? Math.round((totalScore / totalQuestions) * 100)
+        : 0;
+
+    return {
+      success: true,
+      data: {
+        attemptId: attemptRow.id,
+        totalScore,
+        totalQuestions,
+        scorePercent,
+      },
+    };
   } catch (error) {
     return {
       success: false,
@@ -1496,6 +1616,42 @@ export const submitPracticeAttempt = async (
         error instanceof Error ? error.message : "Failed to save attempt",
     };
   }
+};
+
+export const normalizePracticeQuizSubject = (
+  value: string | null | undefined,
+): SubjectName | "general" => {
+  const lower = String(value || "")
+    .trim()
+    .toLowerCase();
+  if (!lower) return "general";
+  if (lower === "mathematics" || lower === "maths") return "math";
+  if (
+    lower === "biology" ||
+    lower === "chemistry" ||
+    lower === "physics" ||
+    lower === "math"
+  ) {
+    return lower;
+  }
+  return "general";
+};
+
+const resolveQuizQuestionCount = (item: Record<string, unknown>): number => {
+  const questions = item.questions;
+  if (Array.isArray(questions)) {
+    if (questions.length === 1 && typeof questions[0]?.count === "number") {
+      return questions[0].count;
+    }
+    if (questions.length > 0 && questions[0]?.id) {
+      return questions.length;
+    }
+    if (typeof questions[0]?.count === "number") {
+      return questions[0].count;
+    }
+  }
+  const fallback = Number(item.question_count ?? item.questionCount ?? 0);
+  return Number.isFinite(fallback) ? fallback : 0;
 };
 
 export const fetchMyPracticeQuizzes = async (): Promise<
@@ -1523,17 +1679,15 @@ export const fetchMyPracticeQuizzes = async (): Promise<
         const questions = Array.isArray(item.questions)
           ? item.questions
           : [];
-        const questionCount =
-          typeof questions[0]?.count === "number"
-            ? questions[0].count
-            : 0;
         const subjectRow = item.subjects as Record<string, unknown> | null;
         return {
           id: String(item.id || ""),
           title: String(item.title || "AI Practice"),
           topic: String(item.topic || ""),
-          subject: String(subjectRow?.name || "subject"),
-          questionCount,
+          subject: normalizePracticeQuizSubject(
+            String(subjectRow?.name || "subject"),
+          ),
+          questionCount: resolveQuizQuestionCount(item),
           createdAt: String(item.created_at || ""),
           source: "ai" as const,
         };
@@ -1541,13 +1695,15 @@ export const fetchMyPracticeQuizzes = async (): Promise<
       .filter((item: BackendPracticeQuizSummary) => item.id.length > 0);
 
     const seen = new Set<string>();
-    return normalized.filter((item: BackendPracticeQuizSummary) => {
+    const deduped = normalized.filter((item: BackendPracticeQuizSummary) => {
       if (seen.has(item.id)) {
         return false;
       }
       seen.add(item.id);
       return true;
     });
+
+    return attachQuizAttemptSummaries(deduped);
   } catch (error) {
     console.warn("Failed to fetch practice quizzes:", error);
     return [];
@@ -1575,17 +1731,15 @@ export const fetchPracticeLibraryQuizzes = async (): Promise<
         const questions = Array.isArray(item.questions)
           ? item.questions
           : [];
-        const questionCount =
-          typeof questions[0]?.count === "number"
-            ? questions[0].count
-            : 0;
         const subjectRow = item.subjects as Record<string, unknown> | null;
         return {
           id: String(item.id || ""),
           title: String(item.title || "Teacher Practice"),
           topic: String(item.topic || ""),
-          subject: String(subjectRow?.name || "subject"),
-          questionCount,
+          subject: normalizePracticeQuizSubject(
+            String(subjectRow?.name || "subject"),
+          ),
+          questionCount: resolveQuizQuestionCount(item),
           createdAt: String(item.created_at || ""),
           source: "teacher" as const,
         };
@@ -1593,13 +1747,15 @@ export const fetchPracticeLibraryQuizzes = async (): Promise<
       .filter((item: BackendPracticeQuizSummary) => item.id.length > 0);
 
     const seen = new Set<string>();
-    return normalized.filter((item: BackendPracticeQuizSummary) => {
+    const deduped = normalized.filter((item: BackendPracticeQuizSummary) => {
       if (seen.has(item.id)) {
         return false;
       }
       seen.add(item.id);
       return true;
     });
+
+    return attachQuizAttemptSummaries(deduped);
   } catch (error) {
     console.warn("Failed to fetch practice library quizzes:", error);
     return [];

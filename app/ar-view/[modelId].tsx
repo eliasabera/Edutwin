@@ -1,56 +1,36 @@
 import { COLORS } from "@/shared/constants/colors";
-import { getArTopicById, getArTopics } from "@/shared/services/ar-service";
-import { useStudentProfile } from "@/shared/store/user-store";
+import { getArTopicById } from "@/shared/services/ar-service";
+import { hasStudentLabAccess } from "@/shared/services/student-access-service";
 import ARWebView from "@/src/modules/lab/ARWebView";
-import { CameraView, useCameraPermissions } from "expo-camera";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import React, { useMemo } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import React, { useEffect, useState } from "react";
+import {
+  ActivityIndicator,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 export default function ArViewScreen() {
   const { modelId } = useLocalSearchParams<{ modelId?: string }>();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const topic = modelId ? getArTopicById(modelId) : null;
-  const studentProfile = useStudentProfile();
-  const [cameraPermission, requestPermission] = useCameraPermissions();
+  const [hasAccess, setHasAccess] = useState<boolean | null>(null);
 
-  const freeArIds = useMemo(() => {
-    const bySubject = new Map<string, string>();
-    const chapterOrder = (value: string): number => {
-      const match = String(value || "").match(/\d+/);
-      return match ? Number.parseInt(match[0], 10) : Number.POSITIVE_INFINITY;
-    };
-
-    const sorted = [...getArTopics()].sort((a, b) => {
-      const subjectOrder = String(a.subject).localeCompare(String(b.subject));
-      if (subjectOrder !== 0) {
-        return subjectOrder;
+  useEffect(() => {
+    let mounted = true;
+    void hasStudentLabAccess().then((allowed) => {
+      if (mounted) {
+        setHasAccess(allowed);
       }
-
-      const chapterDiff = chapterOrder(a.chapter) - chapterOrder(b.chapter);
-      if (chapterDiff !== 0) {
-        return chapterDiff;
-      }
-
-      return String(a.topic).localeCompare(String(b.topic), undefined, {
-        numeric: true,
-        sensitivity: "base",
-      });
     });
-
-    for (const item of sorted) {
-      const subject = String(item.subject || "").toLowerCase();
-      if (!bySubject.has(subject)) {
-        bySubject.set(subject, item.id);
-      }
-    }
-
-    return new Set(Array.from(bySubject.values()));
+    return () => {
+      mounted = false;
+    };
   }, []);
-
-  const hasAccess =
-    topic &&
-    (studentProfile.isSubscribed === true || freeArIds.has(topic.id));
 
   if (!topic) {
     return (
@@ -63,13 +43,21 @@ export default function ArViewScreen() {
     );
   }
 
+  if (hasAccess === null) {
+    return (
+      <View style={styles.permissionContainer}>
+        <ActivityIndicator size="large" color={COLORS.primary} />
+      </View>
+    );
+  }
+
   if (!hasAccess) {
     return (
       <View style={styles.permissionContainer}>
         <Text style={styles.permissionTitle}>This AR model is locked</Text>
         <Text style={styles.permissionSubtitle}>
-          Your account is not subscribed. You can use one free AR model per
-          subject, and this one requires subscription.
+          Your 7-day free trial has ended. Subscribe to unlock all Canvas and AR
+          models.
         </Text>
         <Pressable
           style={styles.permissionButton}
@@ -78,180 +66,110 @@ export default function ArViewScreen() {
               router.back();
               return;
             }
-            router.replace("/(tabs)/lab");
+            router.replace("/settings");
           }}
         >
-          <Text style={styles.permissionButtonText}>Back to Lab</Text>
-        </Pressable>
-      </View>
-    );
-  }
-
-  if (!cameraPermission) {
-    return (
-      <View style={styles.permissionContainer}>
-        <Pressable style={styles.permissionButton} onPress={requestPermission}>
-          <Text style={styles.permissionButtonText}>Enable Camera</Text>
-        </Pressable>
-        <Text style={styles.permissionTitle}>Checking camera access...</Text>
-      </View>
-    );
-  }
-
-  if (!cameraPermission.granted) {
-    return (
-      <View style={styles.permissionContainer}>
-        <Text style={styles.permissionTitle}>Camera access is needed</Text>
-        <Text style={styles.permissionSubtitle}>
-          Allow camera permission to continue with AR viewing.
-        </Text>
-        <Pressable style={styles.permissionButton} onPress={requestPermission}>
-          <Text style={styles.permissionButtonText}>Allow Camera</Text>
+          <Text style={styles.permissionButtonText}>Go to subscription</Text>
         </Pressable>
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
-      <CameraView facing="back" style={styles.camera} />
-      <View style={styles.modelLayer}>
-        <ARWebView
-          topic={topic}
-          fullScreen
-          transparentBackground
-          onSessionEnded={() => {
+    <View style={[styles.screen, { paddingTop: insets.top }]}>
+      <View style={styles.header}>
+        <Pressable
+          onPress={() => {
             if (router.canGoBack()) {
               router.back();
               return;
             }
             router.replace("/(tabs)/lab");
           }}
-        />
+          style={styles.backButton}
+        >
+          <Text style={styles.backButtonText}>Back</Text>
+        </Pressable>
+        <Text style={styles.headerTitle} numberOfLines={1}>
+          {topic.title}
+        </Text>
       </View>
-
-      <Pressable
-        style={styles.closeButton}
-        onPress={() => {
-          if (router.canGoBack()) {
-            router.back();
-            return;
-          }
-          router.replace("/(tabs)/lab");
-        }}
-      >
-        <Text style={styles.closeButtonText}>Close</Text>
-      </Pressable>
-
-      <View style={styles.topOverlay}>
-        <Text style={styles.overlayTitle}>{topic.title}</Text>
-        <View style={styles.metaRow}>
-          <View style={styles.metaPill}>
-            <Text style={styles.metaPillText}>{topic.subject}</Text>
-          </View>
-          <View style={styles.metaPill}>
-            <Text style={styles.metaPillText}>{topic.chapter}</Text>
-          </View>
-        </View>
-      </View>
+      <ARWebView topic={topic} fullScreen />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: "#08111F",
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+  },
+  backButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: "rgba(255,255,255,0.12)",
+  },
+  backButtonText: {
+    color: "#FFFFFF",
+    fontWeight: "700",
+  },
+  headerTitle: {
+    flex: 1,
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "700",
+  },
   container: {
     flex: 1,
-    backgroundColor: "#050B15",
-  },
-  camera: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  modelLayer: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  topOverlay: {
-    position: "absolute",
-    top: 72,
-    left: 16,
-    right: 16,
-    backgroundColor: "rgba(5, 11, 21, 0.54)",
-    borderRadius: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-  },
-  closeButton: {
-    position: "absolute",
-    top: 22,
-    right: 16,
-    backgroundColor: "rgba(5, 11, 21, 0.74)",
-    borderRadius: 999,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-  },
-  closeButtonText: {
-    color: "#EAF1FF",
-    fontWeight: "800",
-    fontSize: 12,
-  },
-  overlayTitle: {
-    fontSize: 16,
-    color: "#EAF1FF",
-    fontWeight: "800",
-    marginBottom: 8,
-  },
-  metaRow: {
-    flexDirection: "row",
-    gap: 8,
-    flexWrap: "wrap",
-  },
-  metaPill: {
-    backgroundColor: "rgba(23, 56, 112, 0.82)",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 999,
-  },
-  metaPillText: {
-    color: "#D8E6FF",
-    textTransform: "capitalize",
-    fontWeight: "700",
-    fontSize: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 24,
+    backgroundColor: "#FFFFFF",
   },
   title: {
-    fontSize: 24,
-    fontWeight: "800",
-    color: "#EAF1FF",
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#12233F",
+    marginBottom: 8,
   },
   subtitle: {
     fontSize: 14,
-    color: "#ACBEDF",
-    marginTop: 8,
-    lineHeight: 20,
+    color: "#5A6C87",
+    textAlign: "center",
+    paddingHorizontal: 24,
   },
   permissionContainer: {
     flex: 1,
-    backgroundColor: "#050B15",
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 24,
+    padding: 24,
+    backgroundColor: "#FFFFFF",
   },
   permissionTitle: {
-    marginTop: 14,
-    fontSize: 18,
-    color: "#EAF1FF",
+    fontSize: 20,
     fontWeight: "700",
+    color: "#12233F",
+    marginBottom: 8,
     textAlign: "center",
   },
   permissionSubtitle: {
-    marginTop: 10,
     fontSize: 14,
-    color: "#ACBEDF",
+    color: "#5A6C87",
     textAlign: "center",
     lineHeight: 20,
+    marginBottom: 20,
   },
   permissionButton: {
-    marginTop: 18,
-    backgroundColor: "#2F7BFF",
-    paddingHorizontal: 18,
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: 20,
     paddingVertical: 12,
     borderRadius: 12,
   },

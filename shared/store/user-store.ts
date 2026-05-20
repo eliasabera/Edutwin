@@ -32,7 +32,16 @@ export const updateStudentProfile = (updates: Partial<StudentProfile>) => {
 };
 
 export const resetStudentProfile = () => {
-  studentProfile = defaultStudentProfile;
+  studentProfile = { ...defaultStudentProfile };
+  emitChange();
+};
+
+export const setStudentProfile = (profile: StudentProfile) => {
+  studentProfile = {
+    ...defaultStudentProfile,
+    ...profile,
+    twinName: profile.twinName || defaultStudentProfile.twinName,
+  };
   emitChange();
 };
 

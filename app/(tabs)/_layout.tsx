@@ -1,7 +1,6 @@
 import { COLORS } from "@/shared/constants/colors";
 import { useTranslation } from "@/shared/i18n";
 import { useAppSettings } from "@/shared/store/settings-store";
-import { clearAuthToken } from "@/shared/services/auth-service";
 import { Ionicons } from "@expo/vector-icons";
 import { Tabs, usePathname } from "expo-router";
 import { useEffect, useRef, useState } from "react";
@@ -152,7 +151,6 @@ export default function TabsLayout() {
   }, [pathname]);
 
   return (
-    <>
       <Tabs
         backBehavior="none"
         screenOptions={({ route }) => {
@@ -281,7 +279,6 @@ export default function TabsLayout() {
           }}
         />
       </Tabs>
-    </>
   );
 }
 

@@ -1,8 +1,30 @@
 import * as SecureStore from "expo-secure-store";
 import type { StudentProfile } from "../types/domain.types";
 import { supabase } from "./supabase-client";
+import { assertSupabaseConfig } from "./supabase-config";
 
 export type UserRole = "STUDENT" | "TEACHER" | "ADMIN";
+
+export const MOBILE_STUDENT_ONLY_MESSAGE =
+  "The EduTwin mobile app is for students only. Teachers and school admins should sign in on the website.";
+
+export const normalizeUserRole = (role?: string | null): UserRole => {
+  const normalized = String(role || "STUDENT").trim().toUpperCase();
+  if (normalized === "TEACHER") return "TEACHER";
+  if (normalized === "ADMIN" || normalized === "SUPER_ADMIN") return "ADMIN";
+  return "STUDENT";
+};
+
+export const isStudentRole = (role?: string | null) =>
+  normalizeUserRole(role) === "STUDENT";
+
+const assertMobileStudentAccess = async (role?: string | null) => {
+  if (isStudentRole(role)) {
+    return;
+  }
+  await logoutUser();
+  throw new Error(MOBILE_STUDENT_ONLY_MESSAGE);
+};
 
 export type AuthUser = {
   id: string;
@@ -28,10 +50,15 @@ export type PublicSchoolOption = {
   _id: string;
   name: string;
 };
+
+type UnknownRecord = Record<string, unknown>;
+
 export type BackendStudentProfile = {
   full_name?: string;
   language?: string;
   grade_level?: number;
+  school_id?: string;
+  section?: string;
   grade?: string | number;
   mastery_score?: number;
   performance_band?: "support" | "medium" | "top" | "low";
@@ -55,6 +82,7 @@ export type BackendStudentProfile = {
   subscription_plan?: string | null;
   subscription_status?: string | null;
   subscription_period_end?: string | null;
+  trial_started_at?: string | null;
 };
 
 type StudentProfileUpdatePayload = Partial<{
@@ -81,7 +109,30 @@ type StudentProfileUpdatePayload = Partial<{
 let authToken: string | null = null;
 let currentUser: AuthUser | null = null;
 let cachedStudentProfile: BackendStudentProfile | null = null;
+let studentSessionEstablished = false;
 const AUTH_TOKEN_STORAGE_KEY = "edutwin_auth_token";
+
+/** Shared across all StudentSessionGuard instances (tabs, settings, classchat, etc.). */
+export const hasStudentSessionEstablished = () => studentSessionEstablished;
+
+export const markStudentSessionEstablished = () => {
+  studentSessionEstablished = true;
+};
+
+export const clearStudentSessionEstablished = () => {
+  studentSessionEstablished = false;
+};
+
+const invalidateAccessCaches = async () => {
+  try {
+    const { invalidateStudentAccessCache } = await import(
+      "./student-access-service"
+    );
+    invalidateStudentAccessCache();
+  } catch {
+    // Ignore if access service is unavailable during startup.
+  }
+};
 
 const persistAuthToken = async (token: string) => {
   try {
@@ -133,14 +184,20 @@ const ensureAuthToken = async () => {
 
     if (error && isInvalidRefreshTokenError(error)) {
       authToken = null;
+      currentUser = null;
+      cachedStudentProfile = null;
+      clearStudentSessionEstablished();
       await deletePersistedAuthToken();
-      await supabase.auth.signOut();
+      await supabase.auth.signOut({ scope: "local" });
     }
   } catch (error) {
     if (isInvalidRefreshTokenError(error)) {
       authToken = null;
+      currentUser = null;
+      cachedStudentProfile = null;
+      clearStudentSessionEstablished();
       await deletePersistedAuthToken();
-      await supabase.auth.signOut();
+      await supabase.auth.signOut({ scope: "local" });
     }
   }
 
@@ -152,8 +209,11 @@ const ensureSession = async () => {
   if (error) {
     if (isInvalidRefreshTokenError(error)) {
       authToken = null;
+      currentUser = null;
+      cachedStudentProfile = null;
+      clearStudentSessionEstablished();
       await deletePersistedAuthToken();
-      await supabase.auth.signOut();
+      await supabase.auth.signOut({ scope: "local" });
       throw new Error("Session expired. Please login again.");
     }
     throw new Error(error.message);
@@ -655,6 +715,7 @@ export const mapBackendProfileToStudentProfile = (
 };
 
 export const loginUser = async (email: string, password: string) => {
+  assertSupabaseConfig();
   const { data, error } = await supabase.auth.signInWithPassword({
     email,
     password,
@@ -679,14 +740,18 @@ export const loginUser = async (email: string, password: string) => {
   const user: AuthUser = {
     id: userId,
     email: session.user.email || email,
-    role: (profileRow?.role || "STUDENT") as UserRole,
+    role: normalizeUserRole(profileRow?.role),
     has_accepted_terms_policy: profileRow?.has_accepted_terms_policy || false,
     terms_policy_accepted_at: profileRow?.terms_policy_accepted_at || null,
   };
 
+  await assertMobileStudentAccess(user.role);
+
+  cachedStudentProfile = null;
   authToken = session.access_token;
   await persistAuthToken(authToken);
   currentUser = user;
+  markStudentSessionEstablished();
 
   return {
     user,
@@ -695,6 +760,7 @@ export const loginUser = async (email: string, password: string) => {
 };
 
 export const registerStudent = async (payload: StudentRegistrationPayload) => {
+  assertSupabaseConfig();
   const normalizedEmail = payload.email.trim().toLowerCase();
   const termsAccepted = payload.has_accepted_terms_policy === true;
   const termsAcceptedAt = termsAccepted ? new Date().toISOString() : null;
@@ -755,10 +821,13 @@ export const registerStudent = async (payload: StudentRegistrationPayload) => {
         grade_level: payload.grade_level,
         school_id: payload.school_id || null,
         section: payload.section || null,
+        trial_started_at: new Date().toISOString(),
       },
       { onConflict: "user_id" },
     )
-    .select("full_name, language, grade_level, school_id, section")
+    .select(
+      "full_name, language, grade_level, school_id, section, trial_started_at",
+    )
     .maybeSingle();
 
   if (studentError) {
@@ -776,6 +845,7 @@ export const registerStudent = async (payload: StudentRegistrationPayload) => {
   authToken = session.access_token;
   await persistAuthToken(authToken);
   currentUser = user;
+  markStudentSessionEstablished();
 
   return {
     user,
@@ -810,7 +880,92 @@ export const fetchPublicSchools = async (): Promise<PublicSchoolOption[]> => {
 };
 
 export const hydrateAuthToken = async () => {
-  return ensureAuthToken();
+  await ensureAuthToken();
+  await resolveCurrentUser();
+  return authToken;
+};
+
+const loadUserProfileRow = async (userId: string) =>
+  supabase
+    .from("user_profiles")
+    .select(
+      "email, role, has_accepted_terms_policy, terms_policy_accepted_at",
+    )
+    .eq("id", userId)
+    .maybeSingle();
+
+/** Restores in-memory user from Supabase session (e.g. after app restart). */
+export const resolveCurrentUser = async (): Promise<AuthUser | null> => {
+  if (currentUser) {
+    return currentUser;
+  }
+
+  await ensureAuthToken();
+
+  const { data: sessionData, error: sessionError } =
+    await supabase.auth.getSession();
+  if (sessionError || !sessionData.session?.user) {
+    return null;
+  }
+
+  const sessionUser = sessionData.session.user;
+  let profileRow = null;
+  let profileError: { message: string } | null = null;
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const result = await loadUserProfileRow(sessionUser.id);
+    profileRow = result.data;
+    profileError = result.error;
+    if (!profileError) {
+      break;
+    }
+    if (attempt === 0) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+  }
+
+  if (profileError) {
+    console.warn(
+      "resolveCurrentUser: profile lookup failed, using session fallback",
+      profileError.message,
+    );
+    const fallbackUser: AuthUser = {
+      id: sessionUser.id,
+      email: sessionUser.email || "",
+      role: "STUDENT",
+      has_accepted_terms_policy: false,
+      terms_policy_accepted_at: null,
+    };
+    currentUser = fallbackUser;
+    markStudentSessionEstablished();
+    if (sessionData.session.access_token) {
+      authToken = sessionData.session.access_token;
+      await persistAuthToken(authToken);
+    }
+    return fallbackUser;
+  }
+
+  const user: AuthUser = {
+    id: sessionUser.id,
+    email: profileRow?.email || sessionUser.email || "",
+    role: normalizeUserRole(profileRow?.role),
+    has_accepted_terms_policy: profileRow?.has_accepted_terms_policy || false,
+    terms_policy_accepted_at: profileRow?.terms_policy_accepted_at || null,
+  };
+
+  if (!isStudentRole(user.role)) {
+    currentUser = null;
+    return null;
+  }
+
+  currentUser = user;
+  markStudentSessionEstablished();
+  if (sessionData.session.access_token) {
+    authToken = sessionData.session.access_token;
+    await persistAuthToken(authToken);
+  }
+
+  return user;
 };
 
 export const fetchStudentProfile = async (options?: {
@@ -825,7 +980,7 @@ export const fetchStudentProfile = async (options?: {
   const { data, error } = await supabase
     .from("student_profiles")
     .select(
-      "id, full_name, language, grade_level, school_id, section, student_photo_url, twin_profiles ( twin_name, twin_photo_url, xp, streak, last_active, lab_bonus_unlock, support_subjects, strong_subjects, subject_scores, mastery_percentage, performance_band )",
+      "id, full_name, language, grade_level, school_id, section, student_photo_url, trial_started_at, twin_profiles ( twin_name, twin_photo_url, xp, streak, last_active, lab_bonus_unlock, support_subjects, strong_subjects, subject_scores, mastery_percentage, performance_band )",
     )
     .eq("user_id", session.user.id)
     .maybeSingle();
@@ -845,6 +1000,7 @@ export const fetchStudentProfile = async (options?: {
     school_id: data.school_id,
     section: data.section,
     student_photo_url: data.student_photo_url,
+    trial_started_at: data.trial_started_at || null,
     twin_name: twinProfile?.twin_name,
     twin_photo_url: twinProfile?.twin_photo_url,
     xp: twinProfile?.xp,
@@ -1207,5 +1363,58 @@ export const clearAuthToken = () => {
   authToken = null;
   currentUser = null;
   cachedStudentProfile = null;
+  clearStudentSessionEstablished();
   void deletePersistedAuthToken();
+};
+// Add these functions to auth-service.ts before the existing exports
+
+/**
+ * Get current authenticated user
+ */
+export const getCurrentUser = (): AuthUser | null => {
+  return currentUser;
+};
+
+/** Prefer in-memory user; only hits Supabase when cache is empty. */
+export const getActiveUserOrResolve = async (): Promise<AuthUser | null> => {
+  const cached = getCurrentUser();
+  if (cached) {
+    return cached;
+  }
+  return resolveCurrentUser();
+};
+
+/**
+ * Get current user's ID
+ */
+export const getCurrentUserId = async (): Promise<string | null> => {
+  const user = getCurrentUser();
+  if (!user) return null;
+  return user.id;
+};
+
+/**
+ * Logout user - clear all auth data
+ */
+export const logoutUser = async (): Promise<void> => {
+  await supabase.auth.signOut();
+  authToken = null;
+  currentUser = null;
+  cachedStudentProfile = null;
+  clearStudentSessionEstablished();
+  void invalidateAccessCaches();
+  await deletePersistedAuthToken();
+};
+
+/**
+ * Update student profile (alias for saveStudentProfile)
+ */
+export const updateStudentProfile = saveStudentProfile;
+
+/**
+ * Check if user is authenticated
+ */
+export const isAuthenticated = async (): Promise<boolean> => {
+  const { data } = await supabase.auth.getSession();
+  return !!data.session;
 };
