@@ -1,14 +1,24 @@
 import { usePathname } from "expo-router";
 import StudentSessionGuard from "./StudentSessionGuard";
 
-const PUBLIC_ROUTE_PREFIXES = ["/(auth)"];
+const AUTH_ROUTE_PREFIXES = [
+  "/(auth)",
+  "/login",
+  "/register",
+  "/setup",
+];
 
+/** Routes that must not run StudentSessionGuard (auth + app entry redirect). */
 export const isPublicAppRoute = (pathname: string) => {
-  if (!pathname || pathname === "/" || pathname === "/index") {
+  const path = pathname || "";
+
+  if (path === "/" || path === "/index") {
     return true;
   }
 
-  return PUBLIC_ROUTE_PREFIXES.some((prefix) => pathname.startsWith(prefix));
+  return AUTH_ROUTE_PREFIXES.some(
+    (prefix) => path === prefix || path.startsWith(`${prefix}/`),
+  );
 };
 
 type ProtectedAppShellProps = {

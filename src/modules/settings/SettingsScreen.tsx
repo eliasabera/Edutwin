@@ -20,6 +20,7 @@ import { useTranslation } from "@/shared/i18n";
 import {
   getAuthToken,
   hydrateAuthToken,
+  hasStudentSessionEstablished,
   saveTermsPolicyAgreement,
   saveStudentProfile,
   setCachedStudentProfile,
@@ -464,16 +465,30 @@ export default function SettingsScreen() {
   useFocusEffect(
     useCallback(() => {
       let isMounted = true;
-      void hydrateAppSettings().then(() => {
+
+      const syncOnFocus = async () => {
+        await hydrateAuthToken();
         if (!isMounted) return;
-      });
-      const cached = peekStudentAccessStatus();
-      if (cached) {
-        setAccessStatus(cached);
-      }
-      void loadSubscriptionStatus({ showLoading: !cached });
-      void loadPublicBenefitStatus();
-      void checkPendingPayment();
+
+        void hydrateAppSettings().then(() => {
+          if (!isMounted) return;
+        });
+
+        if (!hasStudentSessionEstablished() && !getCurrentUser()) {
+          return;
+        }
+
+        const cached = peekStudentAccessStatus();
+        if (cached) {
+          setAccessStatus(cached);
+        }
+        void loadSubscriptionStatus({ showLoading: !cached });
+        void loadPublicBenefitStatus();
+        void checkPendingPayment();
+      };
+
+      void syncOnFocus();
+
       return () => {
         isMounted = false;
       };

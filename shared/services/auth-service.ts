@@ -205,7 +205,12 @@ const ensureAuthToken = async () => {
 };
 
 const ensureSession = async () => {
-  const { data, error } = await supabase.auth.getSession();
+  await ensureAuthToken();
+
+  const readSession = async () => supabase.auth.getSession();
+
+  let { data, error } = await readSession();
+
   if (error) {
     if (isInvalidRefreshTokenError(error)) {
       authToken = null;
@@ -218,9 +223,34 @@ const ensureSession = async () => {
     }
     throw new Error(error.message);
   }
+
+  if (!data.session) {
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    ({ data, error } = await readSession());
+
+    if (error) {
+      if (isInvalidRefreshTokenError(error)) {
+        authToken = null;
+        currentUser = null;
+        cachedStudentProfile = null;
+        clearStudentSessionEstablished();
+        await deletePersistedAuthToken();
+        await supabase.auth.signOut({ scope: "local" });
+        throw new Error("Session expired. Please login again.");
+      }
+      throw new Error(error.message);
+    }
+  }
+
   if (!data.session) {
     throw new Error("Missing auth session. Please login again.");
   }
+
+  if (data.session.access_token) {
+    authToken = data.session.access_token;
+    await persistAuthToken(authToken);
+  }
+
   return data.session;
 };
 
@@ -975,47 +1005,54 @@ export const fetchStudentProfile = async (options?: {
     return cachedStudentProfile;
   }
 
-  const session = await ensureSession();
+  try {
+    const session = await ensureSession();
 
-  const { data, error } = await supabase
-    .from("student_profiles")
-    .select(
-      "id, full_name, language, grade_level, school_id, section, student_photo_url, trial_started_at, twin_profiles ( twin_name, twin_photo_url, xp, streak, last_active, lab_bonus_unlock, support_subjects, strong_subjects, subject_scores, mastery_percentage, performance_band )",
-    )
-    .eq("user_id", session.user.id)
-    .maybeSingle();
+    const { data, error } = await supabase
+      .from("student_profiles")
+      .select(
+        "id, full_name, language, grade_level, school_id, section, student_photo_url, trial_started_at, twin_profiles ( twin_name, twin_photo_url, xp, streak, last_active, lab_bonus_unlock, support_subjects, strong_subjects, subject_scores, mastery_percentage, performance_band )",
+      )
+      .eq("user_id", session.user.id)
+      .maybeSingle();
 
-  if (error || !data) {
-    throw new Error(error?.message || "Failed to fetch profile");
+    if (error || !data) {
+      throw new Error(error?.message || "Failed to fetch profile");
+    }
+
+    const twinProfile = Array.isArray(data.twin_profiles)
+      ? data.twin_profiles[0]
+      : data.twin_profiles;
+
+    const normalized: BackendStudentProfile = {
+      full_name: data.full_name,
+      language: data.language,
+      grade_level: data.grade_level,
+      school_id: data.school_id,
+      section: data.section,
+      student_photo_url: data.student_photo_url,
+      trial_started_at: data.trial_started_at || null,
+      twin_name: twinProfile?.twin_name,
+      twin_photo_url: twinProfile?.twin_photo_url,
+      xp: twinProfile?.xp,
+      streak: twinProfile?.streak,
+      last_active: twinProfile?.last_active,
+      lab_bonus_unlock: twinProfile?.lab_bonus_unlock,
+      support_subjects: twinProfile?.support_subjects,
+      strong_subjects: twinProfile?.strong_subjects,
+      subject_scores: twinProfile?.subject_scores,
+      mastery_score: twinProfile?.mastery_percentage,
+      performance_band: twinProfile?.performance_band,
+    };
+
+    cachedStudentProfile = normalized;
+    return normalized;
+  } catch (error) {
+    if (cachedStudentProfile && hasStudentSessionEstablished()) {
+      return cachedStudentProfile;
+    }
+    throw error;
   }
-
-  const twinProfile = Array.isArray(data.twin_profiles)
-    ? data.twin_profiles[0]
-    : data.twin_profiles;
-
-  const normalized: BackendStudentProfile = {
-    full_name: data.full_name,
-    language: data.language,
-    grade_level: data.grade_level,
-    school_id: data.school_id,
-    section: data.section,
-    student_photo_url: data.student_photo_url,
-    trial_started_at: data.trial_started_at || null,
-    twin_name: twinProfile?.twin_name,
-    twin_photo_url: twinProfile?.twin_photo_url,
-    xp: twinProfile?.xp,
-    streak: twinProfile?.streak,
-    last_active: twinProfile?.last_active,
-    lab_bonus_unlock: twinProfile?.lab_bonus_unlock,
-    support_subjects: twinProfile?.support_subjects,
-    strong_subjects: twinProfile?.strong_subjects,
-    subject_scores: twinProfile?.subject_scores,
-    mastery_score: twinProfile?.mastery_percentage,
-    performance_band: twinProfile?.performance_band,
-  };
-
-  cachedStudentProfile = normalized;
-  return normalized;
 };
 
 export const saveStudentProfile = async (

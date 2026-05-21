@@ -1,13 +1,19 @@
 {
   "expo": {
-    "name": "edutwin",
-    "slug": "edutwin",
+    "name": "Edutwin",
+    "slug": "Edutwin",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/logo-icon-white-bg.png",
+    "jsEngine": "jsc",
     "scheme": "edutwin",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/images/logo-icon-white-bg.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
@@ -16,15 +22,16 @@
     },
     "android": {
       "permissions": [
-        "CAMERA"
+        "CAMERA",
+         "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "NOTIFICATIONS",
+        "INTERNET"
       ],
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "backgroundColor": "#ffffff",
+        "foregroundImage": "./assets/images/logo-icon-white-bg.png"
       },
-      "usesCleartextTraffic": true,
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "package": "com.aberaela.edutwin"
@@ -39,12 +46,9 @@
         "expo-splash-screen",
         {
           "image": "./assets/images/logo-icon-white-bg.png",
-          "imageWidth": 200,
+          "imageWidth": 220,
           "resizeMode": "contain",
-          "backgroundColor": "#ffffff",
-          "dark": {
-            "backgroundColor": "#000000"
-          }
+          "backgroundColor": "#ffffff"
         }
       ]
     ],
@@ -55,7 +59,7 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "f282f6dc-0905-4990-97b9-85ae55d9c7a3"
+        "projectId": "4517461d-a212-489c-be89-e0fa27178a9d"
       }
     }
   }

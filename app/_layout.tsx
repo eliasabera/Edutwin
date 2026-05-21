@@ -34,6 +34,10 @@ import { useTranslation } from "@/shared/i18n";
 import ProtectedAppShell from "@/src/components/ProtectedAppShell";
 
 SplashScreen.preventAutoHideAsync();
+SplashScreen.setOptions({
+  fade: false,
+  duration: 0,
+});
 
 const MENU_SIZE = 51;
 const ACTION_SIZE = 46;
@@ -311,10 +315,7 @@ function RootLayoutContent() {
             headerShown: false,
             contentStyle: { backgroundColor: COLORS.background },
           }}
-        >
-          <Stack.Screen name="index" />
-          <Stack.Screen name="+not-found" options={{ title: "Oops!" }} />
-        </Stack>
+        />
 
         {showSidebar && (
         <>

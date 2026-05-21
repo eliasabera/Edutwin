@@ -1,5 +1,5 @@
 import { useRouter } from "expo-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import {
   getCurrentUser,
@@ -36,52 +36,41 @@ export default function StudentSessionGuard({
   isPublicRoute = false,
 }: StudentSessionGuardProps) {
   const router = useRouter();
-  const initialAccessRef = useRef(canAccessStudentShell());
   const [allowed, setAllowed] = useState(
-    () => isPublicRoute || initialAccessRef.current,
+    () => isPublicRoute || canAccessStudentShell(),
   );
-  const verifyStartedRef = useRef(false);
 
   useEffect(() => {
     if (isPublicRoute) {
-      verifyStartedRef.current = false;
       setAllowed(true);
       return;
     }
 
-    if (initialAccessRef.current) {
+    if (hasStudentSessionEstablished()) {
+      setAllowed(true);
+      return;
+    }
+
+    const cached = getCurrentUser();
+    if (cached && isStudentRole(cached.role)) {
       markStudentSessionEstablished();
-    }
-  }, [isPublicRoute]);
-
-  useEffect(() => {
-    if (isPublicRoute) {
+      setAllowed(true);
       return;
     }
-
-    if (verifyStartedRef.current) {
-      return;
-    }
-    verifyStartedRef.current = true;
 
     let mounted = true;
 
     const verify = async () => {
-      const cached = getCurrentUser();
-      if (cached && isStudentRole(cached.role)) {
-        markStudentSessionEstablished();
-        if (mounted) {
-          setAllowed(true);
+      if (await hasSupabaseSession()) {
+        const user = await resolveCurrentUser();
+        if (!mounted) {
+          return;
         }
-        return;
-      }
-
-      if (hasStudentSessionEstablished() && (await hasSupabaseSession())) {
-        if (mounted) {
+        if (user && isStudentRole(user.role)) {
+          markStudentSessionEstablished();
           setAllowed(true);
+          return;
         }
-        void resolveCurrentUser();
-        return;
       }
 
       for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -119,17 +108,9 @@ export default function StudentSessionGuard({
         return;
       }
 
-      // Keep access if this session was already established (e.g. returning from ClassChat).
-      if (initialAccessRef.current || hasStudentSessionEstablished()) {
-        if (mounted) {
-          setAllowed(true);
-        }
-        return;
-      }
-
       if (mounted) {
         setAllowed(false);
-        router.replace("/(auth)/login" as never);
+        router.replace("/(auth)/login");
       }
     };
 
@@ -138,7 +119,7 @@ export default function StudentSessionGuard({
     return () => {
       mounted = false;
     };
-  }, [isPublicRoute, router]);
+  }, [isPublicRoute]);
 
   if (isPublicRoute) {
     return <>{children}</>;

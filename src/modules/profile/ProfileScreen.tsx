@@ -6,7 +6,7 @@ import {
 import { clearChatSessionId } from "@/shared/services/ai-service";
 import { clearTutorChatCache } from "@/src/modules/ai-tutor/ChatContainer";
 import {
-  clearAuthToken,
+  logoutUser,
   fetchStudentProfile,
   mapBackendProfileToStudentProfile,
   redeemLabBonusUnlock,
@@ -238,7 +238,9 @@ export default function ProfileScreen() {
 
         try {
           console.log("Profile sync: fetching from backend...");
-          const profile = await fetchStudentProfile({ forceRefresh: true });
+          const profile =
+            (await fetchStudentProfile().catch(() => null)) ??
+            (await fetchStudentProfile({ forceRefresh: true }));
           if (!isMounted) return;
 
           applyBackendProfile(profile);
@@ -532,14 +534,14 @@ export default function ProfileScreen() {
     });
   };
 
-  const handleLogout = () => {
-    clearAuthToken();
+  const handleLogout = async () => {
+    await logoutUser();
     clearChatSessionId();
     clearTutorChatCache();
     setCachedStudentProfile(null);
     resetStudentProfile();
     resetGamificationState();
-    router.replace("/(auth)/login" as never);
+    router.replace("/(auth)/login");
   };
 
   const openEditProfile = () => {
